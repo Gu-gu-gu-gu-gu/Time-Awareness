@@ -1,0 +1,51 @@
+/* Time Awareness Plugin Styles */
+#ta_settings .ta_anniversary_item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 5px;
+}
+
+#ta_settings .ta_anniversary_item .text_pole {
+    padding: 4px 6px;
+    font-size: 0.9em;
+}
+
+#ta_settings .ta_section_note {
+    font-size: 0.85em;
+    color: var(--grey50, #888);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+#ta_settings .ta_char_item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 3px;
+    cursor: pointer;
+}
+
+#ta_character_list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+/* 让测试/预览按钮横向显示，自适应宽度 */
+#ta_settings .ta_test_row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#ta_settings .ta-inline-btn {
+    display: inline-flex !important;
+    width: auto !important;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+}
