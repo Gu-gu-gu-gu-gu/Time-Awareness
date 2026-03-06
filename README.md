@@ -1,6 +1,6 @@
 # ⏰ SillyTavern 时间感知插件（Time Awareness）
 
-让 LLM 获得“当前时间 + 日期氛围”感知，并在纪念日/久未发言时主动消息。
+用于 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 让 LLM 获得“当前时间 + 日期氛围”感知，并在纪念日/久未发言时主动消息。
 
 ## 功能亮点
 - **时间感知**：自动向 LLM 注入当前时间、时间段（凌晨/早晨/上午/中午/下午/傍晚/夜晚/深夜）、工作日/周末/节假日、距离上次用户发言。
@@ -12,13 +12,9 @@
   - 可限定生效的角色名单。
 
 ## 安装
-1. 找到 SillyTavern 目录的 `public/scripts/extensions/third-party/`
-2. 新建文件夹：`SillyTavern-TimeAwareness`
-3. 把这 3 个文件放进去：
-   - `manifest.json`
-   - `index.js`
-   - `style.css`
-4. 刷新 SillyTavern 页面，在右侧扩展面板找到 **⏰ 时间感知** 并展开。
+- 打开 SillyTavern 的 Extensions 界面，选择“Install extension”
+- 粘贴本仓库的 URL，点击“Install”
+- 刷新 SillyTavern 页面，在右侧扩展面板找到 **⏰ 时间感知** 并展开。
 
 ## 基础使用
 - **启用插件**：勾选“启用插件”。
