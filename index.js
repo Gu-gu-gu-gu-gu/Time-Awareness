@@ -681,7 +681,7 @@
     const SETTINGS_HTML = `
 <div id="ta_settings" class="inline-drawer">
     <div class="inline-drawer-toggle inline-drawer-header">
-        <b>时间感知 / Time Awareness</b>
+        <b>时间感知</b>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down"></div>
     </div>
     <div class="inline-drawer-content">
