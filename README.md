@@ -71,7 +71,7 @@
 - **Open‑Meteo 能否做到秒级实时？**
   Open‑Meteo 提供的是模型“近实时”数据（通常 15 分钟或小时级更新），不是气象站秒级实况。
 
-## 致谢与合规
+## 致谢
 - chinese-days — 中国节假日、调休与农历日期库
   https://github.com/vsme/chinese-days
   License: MIT
