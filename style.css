@@ -1,4 +1,3 @@
-/* Time Awareness Plugin Styles */
 #ta_settings .ta_anniversary_item {
     display: flex;
     align-items: center;
@@ -32,7 +31,6 @@
     padding: 4px;
 }
 
-/* 让测试/预览按钮横向显示，自适应宽度 */
 #ta_settings .ta_test_row {
     display: flex;
     gap: 6px;
@@ -48,4 +46,48 @@
     align-items: center;
     justify-content: center;
     padding: 6px 10px;
+}
+
+#ta_settings .ta_weather_row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+#ta_settings .ta_weather_row .text_pole {
+    flex: 1;
+    min-width: 120px;
+}
+
+#ta_settings .ta_weather_result_list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+#ta_settings .ta_weather_result_item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#ta_settings .ta_weather_result_text {
+    flex: 1;
+    font-size: 0.9em;
+}
+
+#ta_settings .ta_weather_opts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    margin-top: 6px;
+}
+
+#ta_settings .ta_weather_opts label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
