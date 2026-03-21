@@ -11,10 +11,19 @@
   - 用户长时间未发言时，按概率触发“角色主动问候/闲聊”。
   - 可限定生效的角色名单。
 
-## 安装
-- 打开 SillyTavern 的 Extensions 界面，选择“Install extension”
-- 粘贴本仓库的 URL，点击“Install”
-- 刷新 SillyTavern 页面，在右侧扩展面板找到 **⏰ 时间感知** 并展开。
+## 安装方式
+
+### 方式一：SillyTavern 内置安装
+- 打开 SillyTavern → Extensions
+- 点击 “Install extension”
+- 粘贴仓库的克隆 URL
+- 点击 “Install”
+- 刷新 SillyTavern 页面
+
+### 方式二：手动安装
+- 下载仓库压缩包并解压
+- 放入以下路径：SillyTavern/public/scripts/extensions/third-party/
+- 刷新 SillyTavern 页面
 
 ## 基础使用
 - **启用插件**：勾选“启用插件”。
