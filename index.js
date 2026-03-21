@@ -1,7 +1,7 @@
-// ============================================================
-//  Time Awareness Plugin for SillyTavern
-//  v1.0.0
-// ============================================================
+/* ============================================================
+ *  Time Awareness Plugin for SillyTavern
+ *  v1.1.0
+ * ============================================================ */
 
 (async function () {
 
@@ -11,24 +11,30 @@
     // ======================== 默认设置 ========================
     const defaultSettings = Object.freeze({
         enabled: true,
-        // 时间注入开关
         injectTimestamp: true,
         injectGap: true,
         injectPeriod: true,
         injectDayType: true,
         injectHoliday: true,
         injectLunarFestival: true,
-        // 纪念日
         anniversaries: [],
-        // 自动消息
         autoSpecialDayEnabled: false,
         autoIdleEnabled: false,
         idleThresholdHours: 4,
         idleCheckIntervalMinutes: 30,
         idleTriggerProbability: 15,
         autoMessageCharacters: [],
-        // 内部持久状态
         specialDayTriggered: {},
+        weatherEnabled: false,
+        weatherLocationText: '',
+        weatherLat: '',
+        weatherLon: '',
+        weatherTimezone: 'auto',
+        weatherUpdateMinutes: 30,
+        weatherIncludeCurrent: true,
+        weatherIncludeAirQuality: true,
+        weatherIncludeForecast: true,
+        weatherForecastDays: 3,
     });
 
     // ======================== 运行时状态 ========================
@@ -38,6 +44,15 @@
     let isAutoGenerating = false;
     let mainTimerHandle = null;
     let lastIdleRollTime = 0;
+    let weatherCache = {
+        lastFetch: 0,
+        current: null,
+        daily: null,
+        air: null,
+        ok: false,
+        error: '',
+    };
+    let weatherFetching = false;
 
     // ======================== 设置工具 ========================
     function getSettings() {
@@ -87,22 +102,10 @@
 
     // ======================== 时间工具 ========================
     function pad2(n) { return String(n).padStart(2, '0'); }
-
-    function fmtDate(d) {
-        return `${d.getFullYear()}年${pad2(d.getMonth() + 1)}月${pad2(d.getDate())}日`;
-    }
-
-    function fmtTime(d) {
-        return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    }
-
-    function fmtISO(d) {
-        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-    }
-
-    function fmtMMDD(d) {
-        return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-    }
+    function fmtDate(d) { return `${d.getFullYear()}年${pad2(d.getMonth() + 1)}月${pad2(d.getDate())}日`; }
+    function fmtTime(d) { return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+    function fmtISO(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+    function fmtMMDD(d) { return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 
     function weekdayName(day) {
         return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][day];
@@ -124,6 +127,15 @@
         if (!fromMs || toMs <= fromMs) return null;
         const totalMin = Math.floor((toMs - fromMs) / 60000);
         return { hours: Math.floor(totalMin / 60), minutes: totalMin % 60 };
+    }
+
+    function escHtml(s) {
+        if (!s) return '';
+        return String(s)
+            .replace(/&/g, '&')
+            .replace(/"/g, '"')
+            .replace(/</g, '<')
+            .replace(/>/g, '>');
     }
 
     // ======================== 节假日与日期信息 ========================
@@ -157,7 +169,6 @@
                     result.typeLabel = '周末';
                 }
 
-                // 获取详情：节日名称 + 第几天
                 if (cd.getDayDetail) {
                     const detail = cd.getDayDetail(iso);
                     if (detail && detail.name && detail.name.includes(',')) {
@@ -167,7 +178,6 @@
                     }
                 }
 
-                // 农历节日
                 if (cd.getLunarFestivals) {
                     const fests = cd.getLunarFestivals(iso);
                     if (Array.isArray(fests) && fests.length > 0) {
@@ -207,6 +217,198 @@
         return hits;
     }
 
+    // ======================== 天气工具 ========================
+    function weatherCodeText(code) {
+        const c = Number(code);
+        if (c === 0) return '晴';
+        if (c >= 1 && c <= 3) return '多云';
+        if (c === 45 || c === 48) return '雾';
+        if (c >= 51 && c <= 55) return '毛毛雨';
+        if (c === 56 || c === 57) return '冻毛毛雨';
+        if (c >= 61 && c <= 65) return '雨';
+        if (c === 66 || c === 67) return '冻雨';
+        if (c >= 71 && c <= 75) return '雪';
+        if (c === 77) return '雪粒';
+        if (c >= 80 && c <= 82) return '阵雨';
+        if (c === 85 || c === 86) return '阵雪';
+        if (c === 95) return '雷暴';
+        if (c === 96 || c === 99) return '雷暴伴冰雹';
+        return '未知天气';
+    }
+
+    function aqiLevel(aqi) {
+        if (aqi === null || aqi === undefined || isNaN(aqi)) return '';
+        if (aqi <= 20) return '（优）';
+        if (aqi <= 40) return '（良）';
+        if (aqi <= 60) return '（中等）';
+        if (aqi <= 80) return '（较差）';
+        if (aqi <= 100) return '（很差）';
+        return '（极差）';
+    }
+
+    function fmtNum(n, digits = 1) {
+        if (n === null || n === undefined || isNaN(n)) return null;
+        return Number(n).toFixed(digits);
+    }
+
+    async function searchLocation(query) {
+        const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=10&language=zh&format=json`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!data || !Array.isArray(data.results)) return [];
+        return data.results;
+    }
+
+    function formatGeoLabel(r) {
+        const parts = [];
+        if (r.name) parts.push(r.name);
+        if (r.admin3) parts.push(r.admin3);
+        if (r.admin2) parts.push(r.admin2);
+        if (r.admin1) parts.push(r.admin1);
+        if (r.country) parts.push(r.country);
+        return parts.filter(Boolean).join(' · ');
+    }
+
+    function updateWeatherStatus() {
+        const settings = getSettings();
+        if (!$('#ta_weather_status').length) return;
+        if (!settings.weatherLat || !settings.weatherLon) {
+            $('#ta_weather_status').text('未设置地区，仅输入城市/区县并点击搜索即可定位。');
+            return;
+        }
+        let txt = `已定位：${settings.weatherLocationText || '（已保存坐标）'} `;
+        txt += `(${settings.weatherLat}, ${settings.weatherLon})`;
+        if (weatherCache.ok && weatherCache.lastFetch) {
+            const t = new Date(weatherCache.lastFetch);
+            txt += `，上次更新：${fmtTime(t)}`;
+        }
+        $('#ta_weather_status').text(txt);
+    }
+
+    async function updateWeatherCache(force = false) {
+        const settings = getSettings();
+        if (!settings.weatherEnabled) return;
+        if (!settings.weatherLat || !settings.weatherLon) return;
+        if (weatherFetching) return;
+
+        const now = Date.now();
+        const intervalMs = Math.max(5, Number(settings.weatherUpdateMinutes || 30)) * 60000;
+        if (!force && now - weatherCache.lastFetch < intervalMs) return;
+
+        weatherFetching = true;
+        try {
+            const forecastDays = Math.min(Math.max(parseInt(settings.weatherForecastDays || 3), 1), 7);
+            const currentVars = settings.weatherIncludeCurrent
+                ? 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m'
+                : '';
+            const dailyVars = settings.weatherIncludeForecast
+                ? 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max'
+                : '';
+
+            const params = new URLSearchParams({
+                latitude: settings.weatherLat,
+                longitude: settings.weatherLon,
+                timezone: 'auto',
+                temperature_unit: 'celsius',
+                wind_speed_unit: 'kmh',
+                precipitation_unit: 'mm',
+                forecast_days: String(forecastDays),
+            });
+            if (currentVars) params.set('current', currentVars);
+            if (dailyVars) params.set('daily', dailyVars);
+
+            const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data && !data.error) {
+                weatherCache.current = data.current || null;
+                weatherCache.daily = data.daily || null;
+                weatherCache.current_units = data.current_units || null;
+                weatherCache.daily_units = data.daily_units || null;
+            }
+
+            if (settings.weatherIncludeAirQuality) {
+                const aqParams = new URLSearchParams({
+                    latitude: settings.weatherLat,
+                    longitude: settings.weatherLon,
+                    timezone: 'auto',
+                    current: 'european_aqi,pm2_5,pm10',
+                });
+                const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?${aqParams.toString()}`;
+                const aqRes = await fetch(aqUrl);
+                const aqData = await aqRes.json();
+                if (aqData && !aqData.error) {
+                    weatherCache.air = aqData;
+                }
+            }
+
+            weatherCache.lastFetch = Date.now();
+            weatherCache.ok = true;
+            weatherCache.error = '';
+        } catch (e) {
+            console.warn(LOG, 'Weather fetch error:', e);
+            weatherCache.ok = false;
+            weatherCache.error = String(e || '');
+        } finally {
+            weatherFetching = false;
+            updateWeatherStatus();
+        }
+    }
+
+    function buildWeatherLines() {
+        const settings = getSettings();
+        if (!settings.weatherEnabled) return [];
+        if (!weatherCache.ok) return [];
+
+        const lines = [];
+
+        if (settings.weatherIncludeCurrent && weatherCache.current) {
+            const c = weatherCache.current;
+            const text = [];
+            const wt = weatherCodeText(c.weather_code);
+            if (wt) text.push(wt);
+            if (c.temperature_2m !== undefined) text.push(`${fmtNum(c.temperature_2m, 1)}°C`);
+            if (c.apparent_temperature !== undefined) text.push(`体感${fmtNum(c.apparent_temperature, 1)}°C`);
+            if (c.relative_humidity_2m !== undefined) text.push(`湿度${fmtNum(c.relative_humidity_2m, 0)}%`);
+            if (c.wind_speed_10m !== undefined) text.push(`风速${fmtNum(c.wind_speed_10m, 1)} km/h`);
+            if (text.length > 0) lines.push(`当前天气：${text.join('，')}`);
+        }
+
+        if (settings.weatherIncludeAirQuality && weatherCache.air && weatherCache.air.current) {
+            const a = weatherCache.air.current;
+            const aqi = a.european_aqi;
+            const parts = [];
+            if (aqi !== undefined && aqi !== null) {
+                parts.push(`AQI ${fmtNum(aqi, 0)}${aqiLevel(aqi)}`);
+            }
+            if (a.pm2_5 !== undefined) parts.push(`PM2.5 ${fmtNum(a.pm2_5, 1)}`);
+            if (a.pm10 !== undefined) parts.push(`PM10 ${fmtNum(a.pm10, 1)}`);
+            if (parts.length > 0) lines.push(`空气质量：${parts.join('，')}`);
+        }
+
+        if (settings.weatherIncludeForecast && weatherCache.daily && weatherCache.daily.time) {
+            const d = weatherCache.daily;
+            const n = Math.min(parseInt(settings.weatherForecastDays || 3), d.time.length);
+            const items = [];
+            for (let i = 0; i < n; i++) {
+                const date = new Date(d.time[i]);
+                const dayName = weekdayName(date.getDay());
+                const code = d.weather_code ? d.weather_code[i] : null;
+                const wt = code !== null ? weatherCodeText(code) : '';
+                const tmin = d.temperature_2m_min ? d.temperature_2m_min[i] : null;
+                const tmax = d.temperature_2m_max ? d.temperature_2m_max[i] : null;
+                const pop = d.precipitation_probability_max ? d.precipitation_probability_max[i] : null;
+                let s = `${dayName} ${wt || ''}`.trim();
+                if (tmin !== null && tmax !== null) s += ` ${fmtNum(tmin, 1)}~${fmtNum(tmax, 1)}°C`;
+                if (pop !== null && pop !== undefined) s += ` 降水${fmtNum(pop, 0)}%`;
+                items.push(s.trim());
+            }
+            if (items.length > 0) lines.push(`未来预报：${items.join('；')}`);
+        }
+
+        return lines;
+    }
+
     // ======================== 构建并注入时间 Prompt ========================
     function buildAndInjectPrompt() {
         const ctx = SillyTavern.getContext();
@@ -217,21 +419,20 @@
             return '';
         }
 
+        updateWeatherCache();
+
         const now = new Date();
         const iso = fmtISO(now);
         const lines = [];
 
-        // 当前时间
         if (settings.injectTimestamp) {
             lines.push(`当前时间：${fmtDate(now)} ${fmtTime(now)}`);
         }
 
-        // 时间段
         if (settings.injectPeriod) {
             lines.push(`时间段：${timePeriod(now.getHours(), now.getMinutes())}`);
         }
 
-        // 日期类型 + 节日
         if (settings.injectDayType || settings.injectHoliday || settings.injectLunarFestival) {
             const info = getDayInfo(iso);
 
@@ -254,7 +455,6 @@
             }
         }
 
-        // 距离上次发言
         if (settings.injectGap && lastUserMessageTime) {
             const gap = calcGap(lastUserMessageTime, now.getTime());
             if (gap && (gap.hours > 0 || gap.minutes > 0)) {
@@ -265,7 +465,12 @@
             }
         }
 
-        // 纪念日
+        const weatherLines = buildWeatherLines();
+        if (weatherLines.length > 0) {
+            lines.push('天气信息：');
+            lines.push(...weatherLines);
+        }
+
         const annivs = matchAnniversaries(now);
         for (const a of annivs) {
             lines.push(`📌 今天是：${a}`);
@@ -280,25 +485,22 @@
     function onUserMessage() {
         lastUserMessageTime = Date.now();
         idleTriggeredThisPeriod = false;
-        // 持久化到 chatMetadata
         try {
             const meta = SillyTavern.getContext().chatMetadata;
             if (meta) {
                 meta[`${MODULE_NAME}_lastUserMsgTime`] = lastUserMessageTime;
                 SillyTavern.getContext().saveMetadataDebounced();
             }
-        } catch (_) { /* ignore */ }
+        } catch (_) { }
     }
 
     function restoreLastUserMsgTime() {
         const ctx = SillyTavern.getContext();
-        // 尝试从 chatMetadata 恢复
         const meta = ctx.chatMetadata;
         if (meta && meta[`${MODULE_NAME}_lastUserMsgTime`]) {
             lastUserMessageTime = meta[`${MODULE_NAME}_lastUserMsgTime`];
             return;
         }
-        // 降级：扫描聊天记录
         const chatArr = ctx.chat;
         if (chatArr && chatArr.length > 0) {
             for (let i = chatArr.length - 1; i >= 0; i--) {
@@ -337,12 +539,13 @@
                 name: charName,
                 is_user: false,
                 is_system: false,
-                send_date: ctx.humanizedDateTime(),
+                send_date: new Date().toISOString(),
                 mes: result.trim(),
-                extra: { isAutoMessage: true },
+                extra: { isAutoMessage: true, fromPlugin: MODULE_NAME },
             };
             ctx.addOneMessage(msg, { scroll: true });
             await ctx.saveChat();
+            ctx.saveChatDebounced();
             console.log(LOG, 'Auto message inserted');
             return true;
         } catch (e) {
@@ -362,7 +565,6 @@
         if (!ctx.getCurrentChatId()) return;
         if (ctx.characterId === undefined) return;
 
-        // 角色范围
         if (!isCharacterAllowed(ctx)) return;
 
         const now = new Date();
@@ -404,22 +606,18 @@
         if (ctx.characterId === undefined) return;
         if (!isCharacterAllowed(ctx)) return;
 
-        // 是否超过阈值
         const idleMs = Date.now() - lastUserMessageTime;
         const thresholdMs = settings.idleThresholdHours * 3600000;
         if (idleMs < thresholdMs) return;
 
-        // 是否到了检查间隔
         const intervalMs = settings.idleCheckIntervalMinutes * 60000;
         if (Date.now() - lastIdleRollTime < intervalMs) return;
         lastIdleRollTime = Date.now();
 
-        // Roll 概率
         const roll = Math.random() * 100;
         console.log(LOG, `Idle roll: ${roll.toFixed(1)} / need < ${settings.idleTriggerProbability}`);
         if (roll >= settings.idleTriggerProbability) return;
 
-        // 触发
         idleTriggeredThisPeriod = true;
 
         const gap = calcGap(lastUserMessageTime, Date.now());
@@ -438,7 +636,6 @@
     // ======================== 角色范围判断 ========================
     function isCharacterAllowed(ctx) {
         const settings = getSettings();
-        // 空列表 = 全部允许
         if (!settings.autoMessageCharacters || settings.autoMessageCharacters.length === 0) return true;
         const current = ctx.characters[ctx.characterId];
         if (!current) return false;
@@ -449,7 +646,7 @@
     // ======================== 主定时器 ========================
     function startMainTimer() {
         stopMainTimer();
-        mainTimerHandle = setInterval(mainTick, 60000); // 每 60 秒
+        mainTimerHandle = setInterval(mainTick, 60000);
         console.log(LOG, 'Main timer started (60s interval)');
     }
 
@@ -467,6 +664,7 @@
 
         checkSpecialDay();
         checkIdleMessage();
+        updateWeatherCache();
     }
 
     // ======================== 聊天切换 ========================
@@ -488,7 +686,6 @@
     </div>
     <div class="inline-drawer-content">
 
-        <!-- 总开关 -->
         <div class="settings_section flex-container" style="align-items:center;gap:8px;">
             <input type="checkbox" id="ta_enabled">
             <label for="ta_enabled"><b>启用插件</b></label>
@@ -497,7 +694,6 @@
 
         <hr class="sysHR">
 
-        <!-- 时间信息注入 -->
         <div class="settings_section">
             <b>时间信息注入</b>
             <div style="margin-top:8px;">
@@ -527,7 +723,42 @@
 
         <hr class="sysHR">
 
-        <!-- 纪念日 -->
+        <div class="settings_section">
+            <b>🌤️ 天气与空气质量（Open-Meteo）</b>
+            <div class="ta_section_note">
+                仅注入天气数据，不会写入地区名称。请先搜索定位。
+            </div>
+
+            <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
+                <input type="checkbox" id="ta_weather_enabled"> 启用天气注入
+            </label>
+
+            <div class="ta_weather_row">
+                <input type="text" id="ta_weather_location" class="text_pole" placeholder="输入城市/区县，如：深圳南山">
+                <div id="ta_weather_search" class="menu_button ta-inline-btn">搜索</div>
+            </div>
+            <div id="ta_weather_results"></div>
+            <div id="ta_weather_status" class="ta_section_note"></div>
+
+            <div class="ta_weather_opts">
+                <label><input type="checkbox" id="ta_weather_current"> 当前天气</label>
+                <label><input type="checkbox" id="ta_weather_air"> 空气质量</label>
+                <label><input type="checkbox" id="ta_weather_forecast"> 未来预报</label>
+                <label>预报天数
+                    <input type="number" id="ta_weather_days" class="text_pole" min="1" max="7" step="1" style="width:60px;margin-left:6px;">
+                </label>
+                <label>更新间隔(分钟)
+                    <input type="number" id="ta_weather_interval" class="text_pole" min="5" max="180" step="5" style="width:60px;margin-left:6px;">
+                </label>
+            </div>
+
+            <div class="ta_test_row">
+                <div id="ta_weather_refresh" class="menu_button ta-inline-btn" style="font-size:0.85em;">🔄 手动更新天气</div>
+            </div>
+        </div>
+
+        <hr class="sysHR">
+
         <div class="settings_section">
             <b>🎂 纪念日配置</b>
             <div class="ta_section_note">
@@ -541,7 +772,6 @@
 
         <hr class="sysHR">
 
-        <!-- 自动消息 -->
         <div class="settings_section">
             <b>自动消息</b>
             <div class="ta_section_note">
@@ -577,7 +807,6 @@
 
         <hr class="sysHR">
 
-        <!-- 适用角色 -->
         <div class="settings_section">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
                 <b>自动消息适用角色</b>
@@ -596,21 +825,18 @@
 
         $('#extensions_settings').append(SETTINGS_HTML);
 
-        // CDN 状态
         $('#ta_cdn_status').html(
             chineseDaysLoaded
                 ? '<span style="color:#4caf50;">节假日库 ✓</span>'
                 : '<span style="color:#f44336;">节假日库 ✗（CDN 不可达）</span>'
         );
 
-        // ---- 总开关 ----
         $('#ta_enabled').prop('checked', settings.enabled).on('change', function () {
             settings.enabled = $(this).prop('checked');
             saveSettings();
             if (settings.enabled) { startMainTimer(); } else { stopMainTimer(); clearPrompt(); }
         });
 
-        // ---- 复选框批量绑定 ----
         const checks = {
             '#ta_inject_timestamp': 'injectTimestamp',
             '#ta_inject_gap': 'injectGap',
@@ -620,19 +846,25 @@
             '#ta_inject_lunar': 'injectLunarFestival',
             '#ta_auto_specialday': 'autoSpecialDayEnabled',
             '#ta_auto_idle': 'autoIdleEnabled',
+            '#ta_weather_enabled': 'weatherEnabled',
+            '#ta_weather_current': 'weatherIncludeCurrent',
+            '#ta_weather_air': 'weatherIncludeAirQuality',
+            '#ta_weather_forecast': 'weatherIncludeForecast',
         };
         for (const [sel, key] of Object.entries(checks)) {
             $(sel).prop('checked', settings[key]).on('change', function () {
                 settings[key] = $(this).prop('checked');
                 saveSettings();
+                if (key === 'weatherEnabled') updateWeatherCache(true);
             });
         }
 
-        // ---- 数字输入 ----
         const nums = {
             '#ta_idle_threshold': 'idleThresholdHours',
             '#ta_idle_interval': 'idleCheckIntervalMinutes',
             '#ta_idle_probability': 'idleTriggerProbability',
+            '#ta_weather_days': 'weatherForecastDays',
+            '#ta_weather_interval': 'weatherUpdateMinutes',
         };
         for (const [sel, key] of Object.entries(nums)) {
             $(sel).val(settings[key]).on('input', function () {
@@ -641,7 +873,66 @@
             });
         }
 
-        // ---- 纪念日 ----
+        $('#ta_weather_location').val(settings.weatherLocationText || '');
+
+        $('#ta_weather_search').on('click', async () => {
+            const q = $('#ta_weather_location').val().trim();
+            if (!q) {
+                toastr.warning('请输入城市/区县后再搜索');
+                return;
+            }
+            $('#ta_weather_results').html('<div class="ta_section_note">搜索中...</div>');
+            try {
+                const list = await searchLocation(q);
+                if (!list || list.length === 0) {
+                    $('#ta_weather_results').html('<div class="ta_section_note">未找到匹配地点</div>');
+                    return;
+                }
+                const $list = $('<div class="ta_weather_result_list"></div>');
+                list.forEach((r) => {
+                    const label = formatGeoLabel(r);
+                    const $row = $(`
+                        <div class="ta_weather_result_item">
+                            <div class="ta_weather_result_text">${escHtml(label)}</div>
+                            <div class="menu_button ta-inline-btn ta_weather_pick">选中</div>
+                        </div>
+                    `);
+                    $row.find('.ta_weather_pick').on('click', () => {
+                        settings.weatherLat = r.latitude;
+                        settings.weatherLon = r.longitude;
+                        settings.weatherTimezone = r.timezone || 'auto';
+                        settings.weatherLocationText = label;
+                        $('#ta_weather_location').val(label);
+                        saveSettings();
+                        $('#ta_weather_results').empty();
+                        updateWeatherStatus();
+                        updateWeatherCache(true);
+                    });
+                    $list.append($row);
+                });
+                $('#ta_weather_results').empty().append($list);
+            } catch (e) {
+                console.warn(LOG, 'Geocode error:', e);
+                $('#ta_weather_results').html('<div class="ta_section_note">搜索失败，请稍后重试</div>');
+            }
+        });
+
+        $('#ta_weather_refresh').on('click', async () => {
+            if (!settings.weatherEnabled) {
+                toastr.warning('请先启用天气注入');
+                return;
+            }
+            if (!settings.weatherLat || !settings.weatherLon) {
+                toastr.warning('请先搜索并选择地区');
+                return;
+            }
+            toastr.info('正在更新天气数据…');
+            await updateWeatherCache(true);
+            toastr.success('天气数据已更新');
+        });
+
+        updateWeatherStatus();
+
         renderAnniversaries();
         $('#ta_add_anniversary').on('click', () => {
             settings.anniversaries.push({ name: '', date: '', year: '', enabled: true });
@@ -649,17 +940,14 @@
             renderAnniversaries();
         });
 
-        // ---- 角色列表 ----
         refreshCharacterList();
         $('#ta_refresh_chars').on('click', refreshCharacterList);
 
-        // ---- 预览按钮 ----
         $('#ta_btn_preview').on('click', () => {
             const text = buildAndInjectPrompt();
             toastr.info(text || '（当前无注入内容）', '当前 Prompt 注入', { timeOut: 8000, escapeHtml: false });
         });
 
-        // ---- 手动测试闲置消息 ----
         $('#ta_btn_test_idle').on('click', async () => {
             const ctx = SillyTavern.getContext();
             if (!ctx.getCurrentChatId()) {
@@ -723,11 +1011,6 @@
         });
     }
 
-    function escHtml(s) {
-        if (!s) return '';
-        return s.replace(/&/g, '&').replace(/"/g, '"').replace(/</g, '<').replace(/>/g, '>');
-    }
-
     // ======================== 角色多选列表 ========================
     function refreshCharacterList() {
         const settings = getSettings();
@@ -789,21 +1072,19 @@
         cleanOldTriggers();
         restoreLastUserMsgTime();
         startMainTimer();
+        updateWeatherCache(true);
 
         console.log(LOG, 'Ready ✓');
     });
 
-    // 每次生成前更新 prompt 注入
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, () => {
         buildAndInjectPrompt();
     });
 
-    // 用户发消息
     eventSource.on(event_types.MESSAGE_SENT, () => {
         onUserMessage();
     });
 
-    // 切换聊天
     eventSource.on(event_types.CHAT_CHANGED, () => {
         onChatChanged();
     });
