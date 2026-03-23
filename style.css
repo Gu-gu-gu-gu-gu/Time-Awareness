@@ -29,6 +29,9 @@
     max-height: 200px;
     overflow-y: auto;
     padding: 4px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 4px;
 }
 
 #ta_settings .ta_test_row {
@@ -90,4 +93,28 @@
     display: flex;
     align-items: center;
     gap: 4px;
+}
+
+#ta_inject_character_list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 4px;
+}
+
+#ta_settings .settings_section {
+    padding: 10px;
+    border: 1px solid var(--grey15, #2f2f2f);
+    border-radius: 8px;
+    background: var(--black10, rgba(0, 0, 0, 0.15));
+}
+
+#ta_settings .ta_weather_row {
+    flex-wrap: wrap;
+}
+
+#ta_settings .ta_weather_row .text_pole {
+    min-width: 140px;
 }
