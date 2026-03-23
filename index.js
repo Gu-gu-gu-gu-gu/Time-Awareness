@@ -1,6 +1,6 @@
 /* ============================================================
  *  Time Awareness Plugin for SillyTavern
- *  v1.1.0
+ *  v1.2.0
  * ============================================================ */
 
 (async function () {
@@ -17,6 +17,7 @@
         injectDayType: true,
         injectHoliday: true,
         injectLunarFestival: true,
+        promptPlacement: 'system',
         anniversaries: [],
         autoSpecialDayEnabled: false,
         autoIdleEnabled: false,
@@ -24,6 +25,7 @@
         idleCheckIntervalMinutes: 30,
         idleTriggerProbability: 15,
         autoMessageCharacters: [],
+        injectCharacters: [],
         specialDayTriggered: {},
         weatherEnabled: false,
         weatherLocationText: '',
@@ -51,8 +53,12 @@
         air: null,
         ok: false,
         error: '',
+        airError: '',
     };
     let weatherFetching = false;
+    let lastAutoSaveFailed = false;
+    let lastAutoSaveError = '';
+    let lastAutoGenError = '';
 
     // ======================== 设置工具 ========================
     function getSettings() {
@@ -217,6 +223,30 @@
         return hits;
     }
 
+    function parseDmsToDecimal(text) {
+        if (!text) return null;
+        const raw = String(text).trim();
+        if (!raw) return null;
+
+        const hasSouthWest = /[SW西南]/i.test(raw);
+        const hasNorthEast = /[NE东北]/i.test(raw);
+        const nums = raw.match(/-?\d+(?:\.\d+)?/g);
+        if (!nums || nums.length === 0) return null;
+
+        const deg = parseFloat(nums[0]);
+        const min = nums[1] ? parseFloat(nums[1]) : 0;
+        const sec = nums[2] ? parseFloat(nums[2]) : 0;
+        if (isNaN(deg) || isNaN(min) || isNaN(sec)) return null;
+
+        let dec = Math.abs(deg) + min / 60 + sec / 3600;
+        let sign = deg < 0 ? -1 : 1;
+        if (hasSouthWest) sign = -1;
+        if (hasNorthEast) sign = 1;
+
+        dec = dec * sign;
+        return Number(dec.toFixed(6));
+    }
+
     // ======================== 天气工具 ========================
     function weatherCodeText(code) {
         const c = Number(code);
@@ -272,16 +302,24 @@
     function updateWeatherStatus() {
         const settings = getSettings();
         if (!$('#ta_weather_status').length) return;
+
         if (!settings.weatherLat || !settings.weatherLon) {
-            $('#ta_weather_status').text('未设置地区，仅输入城市/区县并点击搜索即可定位。');
+            $('#ta_weather_status').text('未设置地区，请搜索定位或直接输入经纬度。');
             return;
         }
-        let txt = `已定位：${settings.weatherLocationText || '（已保存坐标）'} `;
-        txt += `(${settings.weatherLat}, ${settings.weatherLon})`;
+
+        let txt = `已定位：${settings.weatherLocationText || '（已保存坐标）'} (${settings.weatherLat}, ${settings.weatherLon})`;
         if (weatherCache.ok && weatherCache.lastFetch) {
             const t = new Date(weatherCache.lastFetch);
             txt += `，上次更新：${fmtTime(t)}`;
+        } else if (weatherCache.error) {
+            txt += `，获取失败：${weatherCache.error}`;
         }
+
+        if (weatherCache.airError) {
+            txt += `，空气质量获取失败：${weatherCache.airError}`;
+        }
+
         $('#ta_weather_status').text(txt);
     }
 
@@ -290,6 +328,15 @@
         if (!settings.weatherEnabled) return;
         if (!settings.weatherLat || !settings.weatherLon) return;
         if (weatherFetching) return;
+
+        const lat = Number(settings.weatherLat);
+        const lon = Number(settings.weatherLon);
+        if (Number.isNaN(lat) || Number.isNaN(lon)) {
+            weatherCache.ok = false;
+            weatherCache.error = '经纬度无效';
+            updateWeatherStatus();
+            return;
+        }
 
         const now = Date.now();
         const intervalMs = Math.max(5, Number(settings.weatherUpdateMinutes || 30)) * 60000;
@@ -306,8 +353,8 @@
                 : '';
 
             const params = new URLSearchParams({
-                latitude: settings.weatherLat,
-                longitude: settings.weatherLon,
+                latitude: String(lat),
+                longitude: String(lon),
                 timezone: 'auto',
                 temperature_unit: 'celsius',
                 wind_speed_unit: 'kmh',
@@ -320,17 +367,29 @@
             const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
             const res = await fetch(url);
             const data = await res.json();
-            if (data && !data.error) {
-                weatherCache.current = data.current || null;
-                weatherCache.daily = data.daily || null;
-                weatherCache.current_units = data.current_units || null;
-                weatherCache.daily_units = data.daily_units || null;
+            if (!data || data.error) {
+                throw new Error(data && data.reason ? data.reason : '天气接口返回错误');
             }
+
+            weatherCache.current = data.current || null;
+            weatherCache.daily = data.daily || null;
+            weatherCache.current_units = data.current_units || null;
+            weatherCache.daily_units = data.daily_units || null;
+
+            if (settings.weatherIncludeCurrent && !weatherCache.current) {
+                throw new Error('未返回当前天气数据');
+            }
+            if (settings.weatherIncludeForecast && !weatherCache.daily) {
+                throw new Error('未返回未来预报数据');
+            }
+
+            weatherCache.air = null;
+            weatherCache.airError = '';
 
             if (settings.weatherIncludeAirQuality) {
                 const aqParams = new URLSearchParams({
-                    latitude: settings.weatherLat,
-                    longitude: settings.weatherLon,
+                    latitude: String(lat),
+                    longitude: String(lon),
                     timezone: 'auto',
                     current: 'european_aqi,pm2_5,pm10',
                 });
@@ -339,6 +398,8 @@
                 const aqData = await aqRes.json();
                 if (aqData && !aqData.error) {
                     weatherCache.air = aqData;
+                } else {
+                    weatherCache.airError = aqData && aqData.reason ? aqData.reason : '空气质量接口返回错误';
                 }
             }
 
@@ -348,7 +409,7 @@
         } catch (e) {
             console.warn(LOG, 'Weather fetch error:', e);
             weatherCache.ok = false;
-            weatherCache.error = String(e || '');
+            weatherCache.error = String(e && e.message ? e.message : e || '');
         } finally {
             weatherFetching = false;
             updateWeatherStatus();
@@ -409,13 +470,27 @@
         return lines;
     }
 
+    function applyExtensionPrompt(text) {
+        const ctx = SillyTavern.getContext();
+        const settings = getSettings();
+        let position = 1;
+        if (settings.promptPlacement === 'world') position = 2;
+        if (settings.promptPlacement === 'prefill') position = 3;
+        ctx.setExtensionPrompt(MODULE_NAME, text, position, 0, false, 0);
+    }
+
     // ======================== 构建并注入时间 Prompt ========================
     function buildAndInjectPrompt() {
         const ctx = SillyTavern.getContext();
         const settings = getSettings();
 
         if (!settings.enabled || !ctx.getCurrentChatId()) {
-            ctx.setExtensionPrompt(MODULE_NAME, '', 1, 0, false, 0);
+            applyExtensionPrompt('');
+            return '';
+        }
+
+        if (!isInjectAllowed(ctx)) {
+            applyExtensionPrompt('');
             return '';
         }
 
@@ -477,7 +552,7 @@
         }
 
         const prompt = lines.length > 0 ? `[时间信息]\n${lines.join('\n')}` : '';
-        ctx.setExtensionPrompt(MODULE_NAME, prompt, 1, 0, false, 0);
+        applyExtensionPrompt(prompt);
         return prompt;
     }
 
@@ -516,6 +591,125 @@
         lastUserMessageTime = null;
     }
 
+    function normalizeGenerationResult(result) {
+        if (!result) return '';
+        if (typeof result === 'string') return result.trim();
+
+        const candidates = [
+            result.text,
+            result.content,
+            result.message,
+            result.output,
+            result.result,
+            result.response,
+            result?.message?.content,
+            result?.message?.text,
+            result?.data?.content,
+            result?.data?.message,
+            result?.choices?.[0]?.message?.content,
+            result?.choices?.[0]?.text,
+        ];
+
+        for (const c of candidates) {
+            if (typeof c === 'string' && c.trim()) return c.trim();
+        }
+
+        return '';
+    }
+
+    function isChatVisible() {
+        return $('#chat').length > 0 && $('#chat').is(':visible');
+    }
+
+    function safeAddMessage(ctx, msg) {
+        try {
+            if (Array.isArray(ctx.chat)) {
+                ctx.chat.push(msg);
+                const idx = ctx.chat.length - 1;
+
+                try {
+                    if (typeof ctx.updateMessageBlock === 'function') {
+                        ctx.updateMessageBlock(idx);
+                    }
+                } catch (_) { }
+
+                try {
+                    if (typeof ctx.printMessages === 'function') {
+                        ctx.printMessages();
+                    }
+                } catch (_) { }
+
+                return true;
+            }
+        } catch (_) { }
+
+        try {
+            if (typeof ctx.addOneMessage === 'function') {
+                ctx.addOneMessage(msg, { scroll: true });
+                return true;
+            }
+        } catch (_) { }
+
+        return false;
+    }
+
+    function safeSaveChatDebounced(ctx) {
+        try {
+            if (typeof ctx.saveChatDebounced === 'function') ctx.saveChatDebounced();
+        } catch (_) { }
+    }
+
+    async function safeSaveChat(ctx) {
+        try {
+            if (typeof ctx.saveChat === 'function') await ctx.saveChat();
+            return true;
+        } catch (e) {
+            return e;
+        } finally {
+            safeSaveChatDebounced(ctx);
+        }
+    }
+
+    function safeSaveMetadataDebounced(ctx) {
+        try {
+            if (typeof ctx.saveMetadataDebounced === 'function') ctx.saveMetadataDebounced();
+        } catch (_) { }
+    }
+
+    function getPendingMessages(ctx) {
+        const meta = ctx.chatMetadata || (ctx.chatMetadata = {});
+        const key = `${MODULE_NAME}_pendingAutoMessages`;
+        if (!Array.isArray(meta[key])) meta[key] = [];
+        return meta[key];
+    }
+
+    function enqueuePendingMessage(msg) {
+        const ctx = SillyTavern.getContext();
+        const list = getPendingMessages(ctx);
+        list.push(msg);
+        safeSaveMetadataDebounced(ctx);
+    }
+
+    function flushPendingMessages() {
+        const ctx = SillyTavern.getContext();
+        if (!ctx.getCurrentChatId()) return;
+
+        const list = getPendingMessages(ctx);
+        if (!list.length) return;
+
+        while (list.length) {
+            const msg = list.shift();
+            const ok = safeAddMessage(ctx, msg);
+            if (!ok) {
+                list.unshift(msg);
+                break;
+            }
+        }
+
+        safeSaveChat(ctx);
+        safeSaveMetadataDebounced(ctx);
+    }
+
     // ======================== 自动消息：公共发送 ========================
     async function sendAsCharacter(quietPromptText) {
         if (isAutoGenerating) return false;
@@ -523,14 +717,19 @@
         if (!ctx.getCurrentChatId()) return false;
         if (ctx.characterId === undefined && ctx.characterId !== 0) return false;
 
+        lastAutoSaveFailed = false;
+        lastAutoSaveError = '';
+        lastAutoGenError = '';
+
         isAutoGenerating = true;
         try {
             const result = await ctx.generateQuietPrompt({
                 quietPrompt: quietPromptText,
             });
 
-            if (!result || !result.trim()) {
-                console.log(LOG, 'Auto generation returned empty');
+            const text = normalizeGenerationResult(result);
+            if (!text) {
+                lastAutoGenError = '生成内容为空';
                 return false;
             }
 
@@ -540,15 +739,31 @@
                 is_user: false,
                 is_system: false,
                 send_date: new Date().toISOString(),
-                mes: result.trim(),
+                mes: text,
                 extra: { isAutoMessage: true, fromPlugin: MODULE_NAME },
             };
-            ctx.addOneMessage(msg, { scroll: true });
-            await ctx.saveChat();
-            ctx.saveChatDebounced();
+
+            if (!isChatVisible()) {
+                enqueuePendingMessage(msg);
+                return true;
+            }
+
+            const added = safeAddMessage(ctx, msg);
+            if (!added) {
+                enqueuePendingMessage(msg);
+                return true;
+            }
+
+            const saveResult = await safeSaveChat(ctx);
+            if (saveResult !== true) {
+                lastAutoSaveFailed = true;
+                lastAutoSaveError = String(saveResult && saveResult.message ? saveResult.message : saveResult || '');
+            }
+
             console.log(LOG, 'Auto message inserted');
             return true;
         } catch (e) {
+            lastAutoGenError = String(e && e.message ? e.message : e || '');
             console.error(LOG, 'Auto generation failed:', e);
             return false;
         } finally {
@@ -627,13 +842,27 @@
             if (gap.minutes > 0) gapStr += `${gap.minutes}分钟`;
         }
 
+        const now = new Date();
+        const timeLine = `当前时间：${fmtDate(now)} ${fmtTime(now)}（${timePeriod(now.getHours(), now.getMinutes())})`;
+        const weatherLines = buildWeatherLines();
+        const weatherText = weatherLines.length > 0 ? `天气信息：${weatherLines.join('；')}` : '';
+
         const charName = ctx.name2 || '角色';
-        const prompt = `[系统指令 - 对用户不可见]\n你是${charName}。用户已经有${gapStr || '一段时间'}没有发消息了。\n请根据当前的对话情境和你们的关系，自然地主动发一条消息。\n可以是闲聊、关心、吐槽、分享日常等——选你觉得最自然的方式。\n不要提到"你很久没说话了"或任何暴露这是系统触发的内容。\n直接输出你要发的消息。`;
+        const prompt = `[系统指令 - 对用户不可见]\n你是${charName}。用户已经有${gapStr || '一段时间'}没有发消息了。\n${timeLine}${weatherText ? `\n${weatherText}` : ''}\n请根据当前的对话情境和你们的关系，自然地主动发一条消息。\n你可以根据时间/天气提醒用户作息、吃饭、喝水、添衣等，但不要太说教。\n不要提到"你很久没说话了"或任何暴露这是系统触发的内容。\n直接输出你要发的消息。`;
 
         await sendAsCharacter(prompt);
     }
 
     // ======================== 角色范围判断 ========================
+    function isInjectAllowed(ctx) {
+        const settings = getSettings();
+        if (!settings.injectCharacters || settings.injectCharacters.length === 0) return true;
+        const current = ctx.characters[ctx.characterId];
+        if (!current) return false;
+        const key = current.avatar || current.name;
+        return settings.injectCharacters.includes(key);
+    }
+
     function isCharacterAllowed(ctx) {
         const settings = getSettings();
         if (!settings.autoMessageCharacters || settings.autoMessageCharacters.length === 0) return true;
@@ -675,6 +904,9 @@
         if ($('#ta_character_list').length) {
             refreshCharacterList();
         }
+        if ($('#ta_inject_character_list').length) {
+            refreshInjectCharacterList();
+        }
     }
 
     // ======================== Settings HTML 模板 ========================
@@ -690,6 +922,17 @@
             <input type="checkbox" id="ta_enabled">
             <label for="ta_enabled"><b>启用插件</b></label>
             <span id="ta_cdn_status" style="margin-left:auto;font-size:0.8em;"></span>
+        </div>
+
+        <hr class="sysHR">
+
+        <div class="settings_section">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <b>时间/天气注入适用角色</b>
+                <div id="ta_refresh_inject_chars" class="menu_button" style="font-size:0.8em;" title="刷新列表">🔄</div>
+            </div>
+            <div class="ta_section_note">不勾选任何角色 = 对所有角色生效。</div>
+            <div id="ta_inject_character_list"></div>
         </div>
 
         <hr class="sysHR">
@@ -716,6 +959,15 @@
                     <input type="checkbox" id="ta_inject_gap"> 距离用户上次发言
                 </label>
             </div>
+            <div style="margin-top:6px;">
+                <label>注入位置
+                    <select id="ta_prompt_pos" class="text_pole" style="width:170px;margin-left:6px;">
+                        <option value="system">扩展提示（系统）</option>
+                        <option value="world">世界书末尾</option>
+                        <option value="prefill">预填充（assistant）</option>
+                    </select>
+                </label>
+            </div>
             <div class="ta_test_row">
                 <div id="ta_btn_preview" class="menu_button ta-inline-btn" style="font-size:0.85em;">👁️ 预览当前注入内容</div>
             </div>
@@ -726,7 +978,7 @@
         <div class="settings_section">
             <b>🌤️ 天气与空气质量（Open-Meteo）</b>
             <div class="ta_section_note">
-                仅注入天气数据，不会写入地区名称。请先搜索定位。
+                仅注入天气数据，不会写入地区名称或坐标。请先搜索定位，或直接输入经纬度。
             </div>
 
             <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
@@ -734,8 +986,18 @@
             </label>
 
             <div class="ta_weather_row">
-                <input type="text" id="ta_weather_location" class="text_pole" placeholder="输入城市/区县，如：深圳南山">
+                <input type="text" id="ta_weather_location" class="text_pole" placeholder="输入城市/区县（可拼音），如：深圳南山 / shenzhen nanshan">
                 <div id="ta_weather_search" class="menu_button ta-inline-btn">搜索</div>
+            </div>
+            <div class="ta_weather_row">
+                <input type="text" id="ta_weather_lat" class="text_pole" placeholder="纬度 Latitude，例如：35.07639">
+                <input type="text" id="ta_weather_lon" class="text_pole" placeholder="经度 Longitude，例如：118.31083">
+                <div id="ta_weather_apply_coord" class="menu_button ta-inline-btn">使用坐标</div>
+            </div>
+            <div class="ta_weather_row">
+                <input type="text" id="ta_weather_lat_dms" class="text_pole" placeholder="纬度度分秒，如：35°4'35"">
+                <input type="text" id="ta_weather_lon_dms" class="text_pole" placeholder="经度度分秒，如：118°18'39"">
+                <div id="ta_weather_convert_dms" class="menu_button ta-inline-btn">度分秒换算</div>
             </div>
             <div id="ta_weather_results"></div>
             <div id="ta_weather_status" class="ta_section_note"></div>
@@ -859,6 +1121,12 @@
             });
         }
 
+        $('#ta_prompt_pos').val(settings.promptPlacement).on('change', function () {
+            settings.promptPlacement = $(this).val();
+            saveSettings();
+            buildAndInjectPrompt();
+        });
+
         const nums = {
             '#ta_idle_threshold': 'idleThresholdHours',
             '#ta_idle_interval': 'idleCheckIntervalMinutes',
@@ -874,6 +1142,81 @@
         }
 
         $('#ta_weather_location').val(settings.weatherLocationText || '');
+
+        $('#ta_weather_lat').val(settings.weatherLat || '');
+        $('#ta_weather_lon').val(settings.weatherLon || '');
+
+        $('#ta_weather_apply_coord').on('click', async () => {
+            const lat = $('#ta_weather_lat').val().trim();
+            const lon = $('#ta_weather_lon').val().trim();
+            const latNum = Number(lat);
+            const lonNum = Number(lon);
+
+            if (lat === '' || lon === '' || Number.isNaN(latNum) || Number.isNaN(lonNum)) {
+                toastr.warning('请正确输入经纬度数字');
+                return;
+            }
+
+            settings.weatherLat = latNum;
+            settings.weatherLon = lonNum;
+            settings.weatherLocationText = `坐标：${latNum}, ${lonNum}`;
+            saveSettings();
+
+            updateWeatherStatus();
+            await updateWeatherCache(true);
+            toastr.success('已使用经纬度更新天气');
+        });
+
+        $('#ta_weather_convert_dms').on('click', () => {
+            const latDms = $('#ta_weather_lat_dms').val().trim();
+            const lonDms = $('#ta_weather_lon_dms').val().trim();
+
+            if (!latDms && !lonDms) {
+                toastr.warning('请输入度分秒再换算');
+                return;
+            }
+
+            const latDec = latDms ? parseDmsToDecimal(latDms) : null;
+            const lonDec = lonDms ? parseDmsToDecimal(lonDms) : null;
+
+            if (latDms && (latDec === null || isNaN(latDec))) {
+                toastr.warning('纬度度分秒格式不正确');
+                return;
+            }
+            if (lonDms && (lonDec === null || isNaN(lonDec))) {
+                toastr.warning('经度度分秒格式不正确');
+                return;
+            }
+
+            if (latDec !== null) $('#ta_weather_lat').val(latDec);
+            if (lonDec !== null) $('#ta_weather_lon').val(lonDec);
+
+            toastr.success('已换算为小数，请点击“使用坐标”应用');
+        });
+
+        $('#ta_weather_lat').val(settings.weatherLat || '');
+        $('#ta_weather_lon').val(settings.weatherLon || '');
+
+        $('#ta_weather_apply_coord').on('click', async () => {
+            const lat = $('#ta_weather_lat').val().trim();
+            const lon = $('#ta_weather_lon').val().trim();
+            const latNum = Number(lat);
+            const lonNum = Number(lon);
+
+            if (lat === '' || lon === '' || Number.isNaN(latNum) || Number.isNaN(lonNum)) {
+                toastr.warning('请正确输入经纬度数字');
+                return;
+            }
+
+            settings.weatherLat = latNum;
+            settings.weatherLon = lonNum;
+            settings.weatherLocationText = `坐标：${latNum}, ${lonNum}`;
+            saveSettings();
+
+            updateWeatherStatus();
+            await updateWeatherCache(true);
+            toastr.success('已使用经纬度更新天气');
+        });
 
         $('#ta_weather_search').on('click', async () => {
             const q = $('#ta_weather_location').val().trim();
@@ -943,6 +1286,9 @@
         refreshCharacterList();
         $('#ta_refresh_chars').on('click', refreshCharacterList);
 
+        refreshInjectCharacterList();
+        $('#ta_refresh_inject_chars').on('click', refreshInjectCharacterList);
+
         $('#ta_btn_preview').on('click', () => {
             const text = buildAndInjectPrompt();
             toastr.info(text || '（当前无注入内容）', '当前 Prompt 注入', { timeOut: 8000, escapeHtml: false });
@@ -958,15 +1304,22 @@
             const charName = ctx.name2 || '角色';
             const prompt = `[系统指令 - 对用户不可见]\n你是${charName}。这是一条测试，请你随意主动给用户发一条简短的消息，就像你突然想起来什么一样。\n直接输出你要发的内容。`;
             const ok = await sendAsCharacter(prompt);
-            if (ok) toastr.success('测试消息已发送');
-            else toastr.error('生成失败，请检查 API 连接');
+            if (ok) {
+                if (lastAutoSaveFailed) {
+                    toastr.warning(`消息已发送，但保存失败：${lastAutoSaveError || '未知错误'}`);
+                } else {
+                    toastr.success('测试消息已发送');
+                }
+            } else {
+                toastr.error(`生成失败：${lastAutoGenError || '请检查 API 连接'}`);
+            }
         });
 
         console.log(LOG, 'UI mounted');
     }
 
     function clearPrompt() {
-        SillyTavern.getContext().setExtensionPrompt(MODULE_NAME, '', 1, 0, false, 0);
+        applyExtensionPrompt('');
     }
 
     // ======================== 纪念日列表渲染 ========================
@@ -1046,6 +1399,40 @@
         });
     }
 
+    function refreshInjectCharacterList() {
+        const settings = getSettings();
+        const $list = $('#ta_inject_character_list').empty();
+        const chars = SillyTavern.getContext().characters || [];
+
+        if (chars.length === 0) {
+            $list.append('<div class="ta_section_note">暂无可用角色</div>');
+            return;
+        }
+
+        chars.forEach((ch) => {
+            const key = ch.avatar || ch.name;
+            if (!key) return;
+            const checked = settings.injectCharacters.includes(key);
+            const $item = $(`
+                <label class="ta_char_item">
+                    <input type="checkbox" class="ta_inject_char_cb" data-key="${escHtml(key)}" ${checked ? 'checked' : ''}>
+                    <span>${escHtml(ch.name || key)}</span>
+                </label>
+            `);
+            $item.find('.ta_inject_char_cb').on('change', function () {
+                const k = $(this).data('key');
+                const on = $(this).prop('checked');
+                if (on && !settings.injectCharacters.includes(k)) {
+                    settings.injectCharacters.push(k);
+                } else if (!on) {
+                    settings.injectCharacters = settings.injectCharacters.filter(x => x !== k);
+                }
+                saveSettings();
+            });
+            $list.append($item);
+        });
+    }
+
     // ======================== 清理过期的触发记录 ========================
     function cleanOldTriggers() {
         const settings = getSettings();
@@ -1071,6 +1458,7 @@
         initUI();
         cleanOldTriggers();
         restoreLastUserMsgTime();
+        flushPendingMessages();
         startMainTimer();
         updateWeatherCache(true);
 
@@ -1087,6 +1475,7 @@
 
     eventSource.on(event_types.CHAT_CHANGED, () => {
         onChatChanged();
+        flushPendingMessages();
     });
 
 })();
