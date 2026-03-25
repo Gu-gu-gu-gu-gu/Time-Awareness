@@ -1,7 +1,7 @@
 # ⏰ SillyTavern 时间感知插件（Time Awareness）
 
 [![English](https://img.shields.io/badge/English-README-blue)](README.md)
-[![更新日志](https://img.shields.io/badge/更新日志-CHANGELOG-brightgreen)](CHANGELOG.en.md)
+[![更新日志](https://img.shields.io/badge/更新日志-CHANGELOG-brightgreen)](CHANGELOG.md)
 
 用于 [SillyTavern](https://github.com/SillyTavern/SillyTavern)，让 LLM 获得“当前时间 + 日期氛围 + 节假日 + 天气空气质量”感知，并支持纪念日/久未发言自动消息。
 
