@@ -1,12 +1,172 @@
 /* ============================================================
  *  Time Awareness Plugin for SillyTavern
- *  v1.2.0
+ *  v1.3.0
  * ============================================================ */
 
 (async function () {
 
     const MODULE_NAME = 'time_awareness';
     const LOG = '[TimeAwareness]';
+    const LANG_GLOBAL_KEY = 'TimeAwarenessLangs';
+    const LANG_DEFAULT = 'zh';
+    const LANG_AUTO_CHECK_MS = 30000;
+
+    function getExtensionBaseUrl() {
+        if (document.currentScript && document.currentScript.src) {
+            return document.currentScript.src.substring(0, document.currentScript.src.lastIndexOf('/'));
+        }
+        const hints = ['Time-Awareness', 'Time Awareness', 'time_awareness', 'time-awareness', 'TimeAwareness'];
+        const scripts = Array.from(document.getElementsByTagName('script'));
+        for (const s of scripts) {
+            const src = s.src || '';
+            if (!src) continue;
+            if (src.endsWith('/index.js') && hints.some(h => src.includes(`/${h}/`))) {
+                return src.substring(0, src.lastIndexOf('/'));
+            }
+        }
+        return '';
+    }
+
+    function loadLangScript(lang) {
+        return new Promise((resolve) => {
+            const base = getExtensionBaseUrl();
+            if (!base) {
+                resolve(false);
+                return;
+            }
+            const url = `${base}/lang/${lang}.js`;
+            const el = document.createElement('script');
+            el.src = url;
+            el.onload = () => resolve(true);
+            el.onerror = () => resolve(false);
+            document.head.appendChild(el);
+        });
+    }
+
+    async function ensureLangLoaded(lang) {
+        window[LANG_GLOBAL_KEY] = window[LANG_GLOBAL_KEY] || {};
+        if (window[LANG_GLOBAL_KEY][lang]) return true;
+        return await loadLangScript(lang);
+    }
+
+    function getLangPack(lang) {
+        window[LANG_GLOBAL_KEY] = window[LANG_GLOBAL_KEY] || {};
+        return window[LANG_GLOBAL_KEY][lang] || {};
+    }
+
+    function t(key, vars) {
+        const pack = getLangPack(currentLang);
+        const fallback = getLangPack(LANG_DEFAULT);
+        let str = pack[key] || fallback[key] || key;
+        if (vars) {
+            str = str.replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m));
+        }
+        return str;
+    }
+
+    function normalizeLang(code) {
+        if (!code) return '';
+        const c = String(code).toLowerCase();
+        if (c.startsWith('zh')) return 'zh';
+        return 'en';
+    }
+
+    function getSillyTavernLang() {
+        const ctx = SillyTavern.getContext();
+        const candidates = [
+            ctx?.settings?.language,
+            ctx?.settings?.uiLanguage,
+            ctx?.settings?.locale,
+            ctx?.settings?.uiLocale,
+            localStorage.getItem('language'),
+            localStorage.getItem('selected_language'),
+            localStorage.getItem('locale'),
+        ];
+        for (const v of candidates) {
+            if (v) return v;
+        }
+        return '';
+    }
+
+    function resolveLanguageWithSource() {
+        const settings = getSettings();
+        if (settings.langMode && settings.langMode !== 'auto') {
+            return { lang: settings.langMode, source: 'manual' };
+        }
+        const st = normalizeLang(getSillyTavernLang());
+        if (st) return { lang: st, source: 'sillytavern' };
+        const nav = normalizeLang(navigator.language || '');
+        if (nav) return { lang: nav, source: 'browser' };
+        return { lang: LANG_DEFAULT, source: 'default' };
+    }
+
+    async function applyLanguage(lang, source = 'auto') {
+        await ensureLangLoaded('zh');
+        await ensureLangLoaded('en');
+
+        const settings = getSettings();
+        currentLang = lang || LANG_DEFAULT;
+        settings.langCurrent = currentLang;
+        settings.langLastSource = source;
+        saveSettings();
+
+        if (uiMounted) {
+            await remountUI();
+            buildAndInjectPrompt();
+        }
+        updateLangStatus();
+    }
+
+    async function autoDetectLanguage(force = false) {
+        const settings = getSettings();
+        if (settings.langMode && settings.langMode !== 'auto' && !force) return;
+
+        const info = resolveLanguageWithSource();
+        settings.langLastSource = info.source;
+        saveSettings();
+
+        if (info.lang !== currentLang || force) {
+            await applyLanguage(info.lang, info.source);
+        }
+        updateLangStatus();
+    }
+
+    function startLangWatcher() {
+        stopLangWatcher();
+        const settings = getSettings();
+        if (settings.langMode === 'auto') {
+            langWatcher = setInterval(() => {
+                autoDetectLanguage(false);
+            }, LANG_AUTO_CHECK_MS);
+        }
+    }
+
+    function stopLangWatcher() {
+        if (langWatcher) {
+            clearInterval(langWatcher);
+            langWatcher = null;
+        }
+    }
+
+    function updateLangStatus() {
+        if (!$('#ta_lang_status').length) return;
+        const settings = getSettings();
+        const langLabel = currentLang === 'zh' ? t('ui.lang.zh') : t('ui.lang.en');
+        let txt = t('status.lang_current', { lang: langLabel });
+        if (settings.langMode === 'auto') {
+            let srcKey = 'status.lang_source_default';
+            if (settings.langLastSource === 'sillytavern') srcKey = 'status.lang_source_sillytavern';
+            if (settings.langLastSource === 'browser') srcKey = 'status.lang_source_browser';
+            if (settings.langLastSource === 'manual') srcKey = 'status.lang_source_manual';
+            txt += `，${t('status.lang_auto_source', { source: t(srcKey) })}`;
+        }
+        $('#ta_lang_status').text(txt);
+    }
+
+    async function remountUI() {
+        if ($('#ta_settings').length) $('#ta_settings').remove();
+        await initUI();
+    }
 
     // ======================== 默认设置 ========================
     const defaultSettings = Object.freeze({
@@ -37,6 +197,17 @@
         weatherIncludeAirQuality: true,
         weatherIncludeForecast: true,
         weatherForecastDays: 3,
+        nagerEnabled: true,
+        nagerAutoDetect: true,
+        nagerCountry: 'CN',
+        nagerCountryName: 'China',
+        nagerLastAutoCountry: '',
+        nagerLastAutoTimezone: '',
+        langMode: 'auto',
+        langCurrent: 'zh',
+        langLastSource: '',
+        injectionMode: 'macro',
+        macroName: 'time_awareness',
     });
 
     // ======================== 运行时状态 ========================
@@ -56,9 +227,28 @@
         airError: '',
     };
     let weatherFetching = false;
+    let nagerCache = {
+        lastFetch: 0,
+        year: 0,
+        country: '',
+        holidays: [],
+        ok: false,
+        error: '',
+    };
+    let nagerCountriesCache = {
+        lastFetch: 0,
+        list: [],
+        ok: false,
+        error: '',
+    };
+    let nagerDetecting = false;
     let lastAutoSaveFailed = false;
     let lastAutoSaveError = '';
     let lastAutoGenError = '';
+    let currentLang = LANG_DEFAULT;
+    let langWatcher = null;
+    let uiMounted = false;
+    let registeredMacroName = '';
 
     // ======================== 设置工具 ========================
     function getSettings() {
@@ -79,6 +269,111 @@
 
     function saveSettings() {
         SillyTavern.getContext().saveSettingsDebounced();
+    }
+
+    function sanitizeMacroName(name) {
+        const raw = String(name || '').trim().toLowerCase();
+        if (!raw) return 'time_awareness';
+        const safe = raw
+            .replace(/[^a-z0-9_]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
+        return safe || 'time_awareness';
+    }
+
+    function getMacroToken(name) {
+        return `{{${name}}}`;
+    }
+
+    function unregisterTimeMacro(name) {
+        const ctx = SillyTavern.getContext();
+        if (!name) return;
+
+        try {
+            if (ctx.macros && ctx.macros.registry && typeof ctx.macros.registry.unregisterMacro === 'function') {
+                ctx.macros.registry.unregisterMacro(name);
+            }
+        } catch (_) { }
+
+        try {
+            if (typeof ctx.unregisterMacro === 'function') {
+                ctx.unregisterMacro(name);
+            }
+        } catch (_) { }
+    }
+
+    function registerTimeMacro(name) {
+        const ctx = SillyTavern.getContext();
+        let ok = false;
+
+        try {
+            if (ctx.macros && typeof ctx.macros.register === 'function') {
+                ctx.macros.register(name, {
+                    handler: () => buildTimePromptText(),
+                    description: 'Time Awareness dynamic prompt',
+                });
+                ok = true;
+            }
+        } catch (e) {
+            console.warn(LOG, 'register via macros.register failed:', e);
+        }
+
+        if (!ok) {
+            try {
+                if (typeof ctx.registerMacro === 'function') {
+                    ctx.registerMacro(name, () => buildTimePromptText());
+                    ok = true;
+                }
+            } catch (e) {
+                console.warn(LOG, 'register via registerMacro failed:', e);
+            }
+        }
+
+        return ok;
+    }
+
+    function refreshMacroRegistration(force = false) {
+        const settings = getSettings();
+        const targetName = sanitizeMacroName(settings.macroName || 'time_awareness');
+        let changed = false;
+
+        if (settings.macroName !== targetName) {
+            settings.macroName = targetName;
+            changed = true;
+        }
+
+        if (registeredMacroName && (force || registeredMacroName !== targetName)) {
+            unregisterTimeMacro(registeredMacroName);
+            registeredMacroName = '';
+        }
+
+        if (!registeredMacroName) {
+            const ok = registerTimeMacro(targetName);
+            if (ok) {
+                registeredMacroName = targetName;
+            }
+        }
+
+        if (changed) saveSettings();
+        updateMacroStatus();
+    }
+
+    function updateMacroStatus() {
+        const settings = getSettings();
+        const macroName = sanitizeMacroName(settings.macroName || 'time_awareness');
+        const token = getMacroToken(macroName);
+
+        if ($('#ta_macro_token_preview').length) {
+            $('#ta_macro_token_preview').text(token);
+        }
+
+        if (!$('#ta_macro_status').length) return;
+
+        if (settings.injectionMode === 'macro') {
+            $('#ta_macro_status').text(`宏模式已启用：请在预设/世界书中写入 ${token}`);
+        } else {
+            $('#ta_macro_status').text('当前为旧注入模式（Extension Prompt）');
+        }
     }
 
     // ======================== 加载 chinese-days ========================
@@ -114,25 +409,34 @@
     function fmtMMDD(d) { return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 
     function weekdayName(day) {
-        return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][day];
+        const keys = ['weekday.sun', 'weekday.mon', 'weekday.tue', 'weekday.wed', 'weekday.thu', 'weekday.fri', 'weekday.sat'];
+        return t(keys[day] || 'weekday.sun');
     }
 
     function timePeriod(h, m) {
-        const t = h * 60 + m;
-        if (t < 360) return '凌晨';
-        if (t < 540) return '早晨';
-        if (t < 690) return '上午';
-        if (t < 810) return '中午';
-        if (t < 1050) return '下午';
-        if (t < 1140) return '傍晚';
-        if (t < 1380) return '夜晚';
-        return '深夜';
+        const tmin = h * 60 + m;
+        if (tmin < 360) return t('period.dawn');
+        if (tmin < 540) return t('period.morning');
+        if (tmin < 690) return t('period.forenoon');
+        if (tmin < 810) return t('period.noon');
+        if (tmin < 1050) return t('period.afternoon');
+        if (tmin < 1140) return t('period.evening');
+        if (tmin < 1380) return t('period.night');
+        return t('period.late');
     }
 
     function calcGap(fromMs, toMs) {
         if (!fromMs || toMs <= fromMs) return null;
         const totalMin = Math.floor((toMs - fromMs) / 60000);
         return { hours: Math.floor(totalMin / 60), minutes: totalMin % 60 };
+    }
+
+    function formatGapText(gap) {
+        if (!gap) return '';
+        let s = '';
+        if (gap.hours > 0) s += t('time.hours', { n: gap.hours });
+        if (gap.minutes > 0) s += t('time.minutes', { n: gap.minutes });
+        return s;
     }
 
     function escHtml(s) {
@@ -166,13 +470,13 @@
                 const isLieu = cd.isInLieu ? cd.isInLieu(iso) : false;
 
                 if (isLieu) {
-                    result.typeLabel = '调休工作日';
+                    result.typeLabel = t('daytype.lieu');
                 } else if (isHol) {
-                    result.typeLabel = '节假日';
+                    result.typeLabel = t('daytype.holiday');
                 } else if (isWork) {
-                    result.typeLabel = '工作日';
+                    result.typeLabel = t('daytype.workday');
                 } else {
-                    result.typeLabel = '周末';
+                    result.typeLabel = t('daytype.weekend');
                 }
 
                 if (cd.getDayDetail) {
@@ -197,10 +501,10 @@
                 }
             } catch (e) {
                 console.warn(LOG, 'chinese-days query error:', e);
-                result.typeLabel = isWeekend ? '周末' : '工作日';
+                result.typeLabel = isWeekend ? t('daytype.weekend') : t('daytype.workday');
             }
         } else {
-            result.typeLabel = isWeekend ? '周末' : '工作日';
+            result.typeLabel = isWeekend ? t('daytype.weekend') : t('daytype.workday');
         }
 
         return result;
@@ -250,30 +554,30 @@
     // ======================== 天气工具 ========================
     function weatherCodeText(code) {
         const c = Number(code);
-        if (c === 0) return '晴';
-        if (c >= 1 && c <= 3) return '多云';
-        if (c === 45 || c === 48) return '雾';
-        if (c >= 51 && c <= 55) return '毛毛雨';
-        if (c === 56 || c === 57) return '冻毛毛雨';
-        if (c >= 61 && c <= 65) return '雨';
-        if (c === 66 || c === 67) return '冻雨';
-        if (c >= 71 && c <= 75) return '雪';
-        if (c === 77) return '雪粒';
-        if (c >= 80 && c <= 82) return '阵雨';
-        if (c === 85 || c === 86) return '阵雪';
-        if (c === 95) return '雷暴';
-        if (c === 96 || c === 99) return '雷暴伴冰雹';
-        return '未知天气';
+        if (c === 0) return t('weather.sunny');
+        if (c >= 1 && c <= 3) return t('weather.partly_cloudy');
+        if (c === 45 || c === 48) return t('weather.fog');
+        if (c >= 51 && c <= 55) return t('weather.drizzle');
+        if (c === 56 || c === 57) return t('weather.freezing_drizzle');
+        if (c >= 61 && c <= 65) return t('weather.rain');
+        if (c === 66 || c === 67) return t('weather.freezing_rain');
+        if (c >= 71 && c <= 75) return t('weather.snow');
+        if (c === 77) return t('weather.snow_grains');
+        if (c >= 80 && c <= 82) return t('weather.showers');
+        if (c === 85 || c === 86) return t('weather.snow_showers');
+        if (c === 95) return t('weather.thunder');
+        if (c === 96 || c === 99) return t('weather.thunder_hail');
+        return t('weather.unknown');
     }
 
     function aqiLevel(aqi) {
         if (aqi === null || aqi === undefined || isNaN(aqi)) return '';
-        if (aqi <= 20) return '（优）';
-        if (aqi <= 40) return '（良）';
-        if (aqi <= 60) return '（中等）';
-        if (aqi <= 80) return '（较差）';
-        if (aqi <= 100) return '（很差）';
-        return '（极差）';
+        if (aqi <= 20) return t('aqi.excellent');
+        if (aqi <= 40) return t('aqi.good');
+        if (aqi <= 60) return t('aqi.moderate');
+        if (aqi <= 80) return t('aqi.fair');
+        if (aqi <= 100) return t('aqi.poor');
+        return t('aqi.very_poor');
     }
 
     function fmtNum(n, digits = 1) {
@@ -304,20 +608,25 @@
         if (!$('#ta_weather_status').length) return;
 
         if (!settings.weatherLat || !settings.weatherLon) {
-            $('#ta_weather_status').text('未设置地区，请搜索定位或直接输入经纬度。');
+            $('#ta_weather_status').text(t('status.weather_not_set'));
             return;
         }
 
-        let txt = `已定位：${settings.weatherLocationText || '（已保存坐标）'} (${settings.weatherLat}, ${settings.weatherLon})`;
+        let txt = t('status.weather_located', {
+            location: settings.weatherLocationText || '（已保存坐标）',
+            lat: settings.weatherLat,
+            lon: settings.weatherLon,
+        });
+
         if (weatherCache.ok && weatherCache.lastFetch) {
-            const t = new Date(weatherCache.lastFetch);
-            txt += `，上次更新：${fmtTime(t)}`;
+            const tme = new Date(weatherCache.lastFetch);
+            txt += `，${t('status.weather_last_update', { time: fmtTime(tme) })}`;
         } else if (weatherCache.error) {
-            txt += `，获取失败：${weatherCache.error}`;
+            txt += `，${t('status.weather_failed', { error: weatherCache.error })}`;
         }
 
         if (weatherCache.airError) {
-            txt += `，空气质量获取失败：${weatherCache.airError}`;
+            txt += `，${t('status.weather_air_failed', { error: weatherCache.airError })}`;
         }
 
         $('#ta_weather_status').text(txt);
@@ -333,7 +642,7 @@
         const lon = Number(settings.weatherLon);
         if (Number.isNaN(lat) || Number.isNaN(lon)) {
             weatherCache.ok = false;
-            weatherCache.error = '经纬度无效';
+            weatherCache.error = t('toast.coord_invalid');
             updateWeatherStatus();
             return;
         }
@@ -368,7 +677,7 @@
             const res = await fetch(url);
             const data = await res.json();
             if (!data || data.error) {
-                throw new Error(data && data.reason ? data.reason : '天气接口返回错误');
+                throw new Error(data && data.reason ? data.reason : 'weather api error');
             }
 
             weatherCache.current = data.current || null;
@@ -377,10 +686,10 @@
             weatherCache.daily_units = data.daily_units || null;
 
             if (settings.weatherIncludeCurrent && !weatherCache.current) {
-                throw new Error('未返回当前天气数据');
+                throw new Error('missing current weather');
             }
             if (settings.weatherIncludeForecast && !weatherCache.daily) {
-                throw new Error('未返回未来预报数据');
+                throw new Error('missing forecast data');
             }
 
             weatherCache.air = null;
@@ -399,7 +708,7 @@
                 if (aqData && !aqData.error) {
                     weatherCache.air = aqData;
                 } else {
-                    weatherCache.airError = aqData && aqData.reason ? aqData.reason : '空气质量接口返回错误';
+                    weatherCache.airError = aqData && aqData.reason ? aqData.reason : 'air api error';
                 }
             }
 
@@ -429,10 +738,10 @@
             const wt = weatherCodeText(c.weather_code);
             if (wt) text.push(wt);
             if (c.temperature_2m !== undefined) text.push(`${fmtNum(c.temperature_2m, 1)}°C`);
-            if (c.apparent_temperature !== undefined) text.push(`体感${fmtNum(c.apparent_temperature, 1)}°C`);
+            if (c.apparent_temperature !== undefined) text.push(`${t('ui.weather.current')} ${fmtNum(c.apparent_temperature, 1)}°C`);
             if (c.relative_humidity_2m !== undefined) text.push(`湿度${fmtNum(c.relative_humidity_2m, 0)}%`);
             if (c.wind_speed_10m !== undefined) text.push(`风速${fmtNum(c.wind_speed_10m, 1)} km/h`);
-            if (text.length > 0) lines.push(`当前天气：${text.join('，')}`);
+            if (text.length > 0) lines.push(t('prompt.weather_current', { text: text.join('，') }));
         }
 
         if (settings.weatherIncludeAirQuality && weatherCache.air && weatherCache.air.current) {
@@ -444,7 +753,7 @@
             }
             if (a.pm2_5 !== undefined) parts.push(`PM2.5 ${fmtNum(a.pm2_5, 1)}`);
             if (a.pm10 !== undefined) parts.push(`PM10 ${fmtNum(a.pm10, 1)}`);
-            if (parts.length > 0) lines.push(`空气质量：${parts.join('，')}`);
+            if (parts.length > 0) lines.push(t('prompt.weather_air', { text: parts.join('，') }));
         }
 
         if (settings.weatherIncludeForecast && weatherCache.daily && weatherCache.daily.time) {
@@ -461,10 +770,10 @@
                 const pop = d.precipitation_probability_max ? d.precipitation_probability_max[i] : null;
                 let s = `${dayName} ${wt || ''}`.trim();
                 if (tmin !== null && tmax !== null) s += ` ${fmtNum(tmin, 1)}~${fmtNum(tmax, 1)}°C`;
-                if (pop !== null && pop !== undefined) s += ` 降水${fmtNum(pop, 0)}%`;
+                if (pop !== null && pop !== undefined) s += ` ${t('weather.precip')}${fmtNum(pop, 0)}%`;
                 items.push(s.trim());
             }
-            if (items.length > 0) lines.push(`未来预报：${items.join('；')}`);
+            if (items.length > 0) lines.push(t('prompt.weather_forecast', { text: items.join('；') }));
         }
 
         return lines;
@@ -476,21 +785,220 @@
         let position = 1;
         if (settings.promptPlacement === 'world') position = 2;
         if (settings.promptPlacement === 'prefill') position = 3;
-        ctx.setExtensionPrompt(MODULE_NAME, text, position, 0, false, 0);
+
+        const isStored = () => {
+            const store = ctx.extensionPrompts;
+            if (!store) return false;
+            const p = store[MODULE_NAME];
+            if (!p) return false;
+            if (typeof p === 'string') return p === text;
+            if (typeof p === 'object') {
+                if (p.value !== undefined) return p.value === text;
+                if (p.prompt !== undefined) return p.prompt === text;
+            }
+            return false;
+        };
+
+        const attempts = [];
+
+        if (typeof ctx.setExtensionPrompt === 'function') {
+            attempts.push(() => ctx.setExtensionPrompt(MODULE_NAME, text, position, 0));
+            attempts.push(() => ctx.setExtensionPrompt(MODULE_NAME, text, 0, position));
+            attempts.push(() => ctx.setExtensionPrompt(MODULE_NAME, text, position));
+            attempts.push(() => ctx.setExtensionPrompt(MODULE_NAME, text));
+        }
+
+        for (const fn of attempts) {
+            try {
+                fn();
+                if (isStored()) return;
+            } catch (_) { }
+        }
+
+        try {
+            if (ctx.extensionPrompts && typeof ctx.extensionPrompts === 'object') {
+                ctx.extensionPrompts[MODULE_NAME] = { value: text, position, depth: 0 };
+            }
+        } catch (_) { }
+    }
+
+    // ======================== Nager.Date ========================
+    function getEffectiveCountryCode() {
+        const settings = getSettings();
+        const code = settings.nagerCountry || 'CN';
+        return String(code).toUpperCase();
+    }
+
+    async function fetchNagerCountries(force = false) {
+        const ttl = 7 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        if (!force && nagerCountriesCache.ok && now - nagerCountriesCache.lastFetch < ttl) {
+            return nagerCountriesCache.list;
+        }
+        try {
+            const res = await fetch('https://date.nager.at/api/v3/AvailableCountries');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            if (!Array.isArray(data)) throw new Error('bad data');
+            data.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en'));
+            nagerCountriesCache.list = data;
+            nagerCountriesCache.ok = true;
+            nagerCountriesCache.error = '';
+            nagerCountriesCache.lastFetch = Date.now();
+        } catch (e) {
+            nagerCountriesCache.ok = false;
+            nagerCountriesCache.error = String(e && e.message ? e.message : e || '');
+        }
+        return nagerCountriesCache.list;
+    }
+
+    function renderNagerCountriesSelect() {
+        const settings = getSettings();
+        const $sel = $('#ta_nager_country_select');
+        if (!$sel.length) return;
+
+        $sel.empty();
+
+        if (!nagerCountriesCache.ok || !nagerCountriesCache.list.length) {
+            $sel.append(`<option value="">${t('status.nager_countries_not_loaded')}</option>`);
+            return;
+        }
+
+        nagerCountriesCache.list.forEach((c) => {
+            const code = escHtml(c.countryCode);
+            const name = escHtml(c.name);
+            $sel.append(`<option value="${code}">${name} (${code})</option>`);
+        });
+
+        const current = (settings.nagerCountry || '').toUpperCase();
+        if (current) $sel.val(current);
+    }
+
+    function updateNagerStatus() {
+        const settings = getSettings();
+        if (!$('#ta_nager_status').length) return;
+
+        const code = getEffectiveCountryCode();
+        let txt = t('status.nager_current_country', { country: settings.nagerCountryName || code || 'N/A' });
+
+        if (settings.nagerLastAutoTimezone) {
+            txt += `，${t('status.nager_timezone', { tz: settings.nagerLastAutoTimezone })}`;
+        }
+
+        if (nagerCache.error) {
+            txt += `，${t('status.nager_holiday_failed', { error: nagerCache.error })}`;
+        }
+
+        $('#ta_nager_status').text(txt);
+    }
+
+    async function detectCountryByTimezone() {
+        const settings = getSettings();
+        if (!settings.nagerAutoDetect) return;
+        if (nagerDetecting) return;
+
+        nagerDetecting = true;
+        try {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (!tz) return;
+
+            const url = `https://worldtimeapi.org/api/timezone/${encodeURIComponent(tz)}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const code = data && data.country_code ? String(data.country_code).toUpperCase() : '';
+
+            if (!code) return;
+
+            settings.nagerCountry = code;
+            settings.nagerLastAutoCountry = code;
+            settings.nagerLastAutoTimezone = tz;
+
+            const match = nagerCountriesCache.list.find(x => x.countryCode === code);
+            settings.nagerCountryName = match ? match.name : settings.nagerCountryName;
+
+            saveSettings();
+            $('#ta_nager_country_code').val(code);
+            renderNagerCountriesSelect();
+            updateNagerStatus();
+            await updateNagerCache(true);
+            buildAndInjectPrompt();
+        } catch (e) {
+            console.warn(LOG, 'Country detect failed:', e);
+        } finally {
+            nagerDetecting = false;
+        }
+    }
+
+    async function updateNagerCache(force = false) {
+        const settings = getSettings();
+        if (!settings.nagerEnabled) return;
+
+        const country = getEffectiveCountryCode();
+        if (!country || country === 'CN') {
+            nagerCache.ok = false;
+            nagerCache.error = '';
+            return;
+        }
+
+        const year = new Date().getFullYear();
+        const ttl = 6 * 60 * 60 * 1000;
+        const now = Date.now();
+
+        if (!force && nagerCache.ok && nagerCache.country === country && nagerCache.year === year && now - nagerCache.lastFetch < ttl) {
+            return;
+        }
+
+        try {
+            const url = `https://date.nager.at/api/v3/PublicHolidays/${year}/${country}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            if (!Array.isArray(data)) throw new Error('bad data');
+
+            nagerCache.holidays = data;
+            nagerCache.country = country;
+            nagerCache.year = year;
+            nagerCache.ok = true;
+            nagerCache.error = '';
+            nagerCache.lastFetch = Date.now();
+        } catch (e) {
+            nagerCache.ok = false;
+            nagerCache.error = String(e && e.message ? e.message : e || '');
+        } finally {
+            updateNagerStatus();
+        }
+    }
+
+    function getNagerDayInfo(iso) {
+        if (!nagerCache.ok || !Array.isArray(nagerCache.holidays)) {
+            return { ready: false, isPublicHoliday: false };
+        }
+        const hit = nagerCache.holidays.find(h => h.date === iso);
+        if (!hit) {
+            return { ready: true, isPublicHoliday: false };
+        }
+        return {
+            ready: true,
+            isPublicHoliday: true,
+            localName: hit.localName || '',
+            name: hit.name || '',
+            types: Array.isArray(hit.types) ? hit.types : [],
+            global: hit.global,
+            counties: Array.isArray(hit.counties) ? hit.counties : [],
+        };
     }
 
     // ======================== 构建并注入时间 Prompt ========================
-    function buildAndInjectPrompt() {
+    function buildTimePromptText() {
         const ctx = SillyTavern.getContext();
         const settings = getSettings();
 
         if (!settings.enabled || !ctx.getCurrentChatId()) {
-            applyExtensionPrompt('');
             return '';
         }
 
         if (!isInjectAllowed(ctx)) {
-            applyExtensionPrompt('');
             return '';
         }
 
@@ -501,57 +1009,117 @@
         const lines = [];
 
         if (settings.injectTimestamp) {
-            lines.push(`当前时间：${fmtDate(now)} ${fmtTime(now)}`);
+            lines.push(t('prompt.current_time', { date: fmtDate(now), time: fmtTime(now) }));
         }
 
         if (settings.injectPeriod) {
-            lines.push(`时间段：${timePeriod(now.getHours(), now.getMinutes())}`);
+            lines.push(t('prompt.time_period', { period: timePeriod(now.getHours(), now.getMinutes()) }));
         }
 
         if (settings.injectDayType || settings.injectHoliday || settings.injectLunarFestival) {
-            const info = getDayInfo(iso);
+            const countryCode = getEffectiveCountryCode();
+            const useNager = settings.nagerEnabled && countryCode && countryCode !== 'CN';
 
-            if (settings.injectDayType) {
-                let dayStr = `${info.weekday}，${info.typeLabel}`;
-                if (settings.injectHoliday && info.holidayName) {
-                    dayStr += `（${info.holidayName}`;
-                    if (info.holidayDay) dayStr += ` 第${info.holidayDay}天`;
-                    dayStr += '）';
+            if (useNager) {
+                updateNagerCache();
+
+                const d = new Date(iso);
+                const weekday = weekdayName(d.getDay());
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const info = getNagerDayInfo(iso);
+
+                if (settings.injectDayType) {
+                    let dayStr = t('prompt.day_line', {
+                        weekday,
+                        type: isWeekend ? t('daytype.weekend') : t('daytype.workday'),
+                        holiday: ''
+                    });
+                    if (info.ready) {
+                        if (info.isPublicHoliday) dayStr += t('prompt.nager_daytype_holiday');
+                    } else {
+                        dayStr += t('prompt.nager_daytype_unknown');
+                    }
+                    lines.push(dayStr);
                 }
-                lines.push(dayStr);
-            } else if (settings.injectHoliday && info.holidayName) {
-                let holStr = `今日节日：${info.holidayName}`;
-                if (info.holidayDay) holStr += `（第${info.holidayDay}天）`;
-                lines.push(holStr);
-            }
 
-            if (settings.injectLunarFestival && info.lunarFestivals.length > 0) {
-                lines.push(`农历节日：${info.lunarFestivals.join('、')}`);
+                if (settings.injectHoliday) {
+                    if (!info.ready) {
+                        lines.push(t('prompt.nager_today_unknown'));
+                    } else if (info.isPublicHoliday) {
+                        let en = '';
+                        if (info.name && info.name !== info.localName) en = t('prompt.nager_en_sep', { name: info.name });
+                        let types = '';
+                        if (info.types && info.types.length > 0) types = t('prompt.nager_types', { types: info.types.join(', ') });
+                        let counties = '';
+                        if (info.global === false && info.counties && info.counties.length > 0) counties = t('prompt.nager_counties', { counties: info.counties.join(', ') });
+
+                        lines.push(t('prompt.nager_today_holiday', {
+                            name: info.localName || 'Unknown',
+                            en,
+                            types,
+                            counties
+                        }));
+                    } else {
+                        lines.push(t('prompt.nager_today_none'));
+                    }
+
+                    if (settings.nagerCountryName || countryCode) {
+                        const cn = settings.nagerCountryName || countryCode;
+                        lines.push(t('prompt.nager_region', { name: cn, code: countryCode }));
+                    }
+                }
+            } else {
+                const info = getDayInfo(iso);
+
+                if (settings.injectDayType) {
+                    let holiday = '';
+                    if (settings.injectHoliday && info.holidayName) {
+                        let day = info.holidayDay ? t('prompt.holiday_day', { day: info.holidayDay }) : '';
+                        holiday = t('prompt.holiday_suffix', { name: info.holidayName, day });
+                    }
+                    lines.push(t('prompt.day_line', { weekday: info.weekday, type: info.typeLabel, holiday }));
+                } else if (settings.injectHoliday && info.holidayName) {
+                    let day = info.holidayDay ? t('prompt.holiday_day', { day: info.holidayDay }) : '';
+                    lines.push(t('prompt.today_holiday', { name: info.holidayName, day }));
+                }
+
+                if (settings.injectLunarFestival && info.lunarFestivals.length > 0) {
+                    lines.push(t('prompt.lunar', { names: info.lunarFestivals.join('、') }));
+                }
             }
         }
 
         if (settings.injectGap && lastUserMessageTime) {
             const gap = calcGap(lastUserMessageTime, now.getTime());
             if (gap && (gap.hours > 0 || gap.minutes > 0)) {
-                let s = '距离用户上次发消息：';
-                if (gap.hours > 0) s += `${gap.hours}小时`;
-                if (gap.minutes > 0) s += `${gap.minutes}分钟`;
-                lines.push(s);
+                lines.push(t('prompt.gap', { gap: formatGapText(gap) }));
             }
         }
 
         const weatherLines = buildWeatherLines();
         if (weatherLines.length > 0) {
-            lines.push('天气信息：');
-            lines.push(...weatherLines);
+            lines.push(t('prompt.weather_info'));
+            lines.push(...weatherLines.map(x => x.replace(/^.+?:\s*/, '')));
         }
 
         const annivs = matchAnniversaries(now);
         for (const a of annivs) {
-            lines.push(`📌 今天是：${a}`);
+            lines.push(t('prompt.anniv', { text: a }));
         }
 
-        const prompt = lines.length > 0 ? `[时间信息]\n${lines.join('\n')}` : '';
+        const prompt = lines.length > 0 ? `${t('prompt.header')}\n${lines.join('\n')}` : '';
+        return prompt;
+    }
+
+    function buildAndInjectPrompt() {
+        const settings = getSettings();
+        const prompt = buildTimePromptText();
+
+        if (settings.injectionMode === 'macro') {
+            applyExtensionPrompt('');
+            return prompt;
+        }
+
         applyExtensionPrompt(prompt);
         return prompt;
     }
@@ -729,7 +1297,7 @@
 
             const text = normalizeGenerationResult(result);
             if (!text) {
-                lastAutoGenError = '生成内容为空';
+                lastAutoGenError = t('error.empty_gen');
                 return false;
             }
 
@@ -799,7 +1367,7 @@
             }
 
             const charName = ctx.name2 || '角色';
-            const prompt = `[系统指令 - 对用户不可见]\n你是${charName}。今天对用户来说是一个特别的日子：${desc}。\n请根据你和用户目前的关系、最近的聊天氛围，自然地决定如何提起（或含蓄暗示）这件事。\n如果当前气氛不适合直说，你可以用更微妙的方式。\n不要说"系统告诉我"之类暴露来源的话。\n直接输出你要发给用户的消息内容。`;
+            const prompt = t('auto.special_prompt', { charName, desc });
 
             const ok = await sendAsCharacter(prompt);
             if (ok) {
@@ -836,19 +1404,15 @@
         idleTriggeredThisPeriod = true;
 
         const gap = calcGap(lastUserMessageTime, Date.now());
-        let gapStr = '';
-        if (gap) {
-            if (gap.hours > 0) gapStr += `${gap.hours}小时`;
-            if (gap.minutes > 0) gapStr += `${gap.minutes}分钟`;
-        }
+        const gapStr = formatGapText(gap) || 'a while';
 
         const now = new Date();
-        const timeLine = `当前时间：${fmtDate(now)} ${fmtTime(now)}（${timePeriod(now.getHours(), now.getMinutes())})`;
+        const timeLine = t('prompt.current_time', { date: fmtDate(now), time: fmtTime(now) }) + `（${timePeriod(now.getHours(), now.getMinutes())}）`;
         const weatherLines = buildWeatherLines();
-        const weatherText = weatherLines.length > 0 ? `天气信息：${weatherLines.join('；')}` : '';
+        const weatherText = weatherLines.length > 0 ? `\n${t('prompt.weather_info')}${weatherLines.join('；')}` : '';
 
         const charName = ctx.name2 || '角色';
-        const prompt = `[系统指令 - 对用户不可见]\n你是${charName}。用户已经有${gapStr || '一段时间'}没有发消息了。\n${timeLine}${weatherText ? `\n${weatherText}` : ''}\n请根据当前的对话情境和你们的关系，自然地主动发一条消息。\n你可以根据时间/天气提醒用户作息、吃饭、喝水、添衣等，但不要太说教。\n不要提到"你很久没说话了"或任何暴露这是系统触发的内容。\n直接输出你要发的消息。`;
+        const prompt = t('auto.idle_prompt', { charName, gapStr, timeLine, weatherText });
 
         await sendAsCharacter(prompt);
     }
@@ -894,6 +1458,8 @@
         checkSpecialDay();
         checkIdleMessage();
         updateWeatherCache();
+        updateNagerCache();
+        buildAndInjectPrompt();
     }
 
     // ======================== 聊天切换 ========================
@@ -910,160 +1476,220 @@
     }
 
     // ======================== Settings HTML 模板 ========================
-    const SETTINGS_HTML = `
+    function buildSettingsHtml() {
+        return `
 <div id="ta_settings" class="inline-drawer">
     <div class="inline-drawer-toggle inline-drawer-header">
-        <b>时间感知</b>
+        <b>${t('ui.title')}</b>
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down"></div>
     </div>
     <div class="inline-drawer-content">
 
         <div class="settings_section flex-container" style="align-items:center;gap:8px;">
             <input type="checkbox" id="ta_enabled">
-            <label for="ta_enabled"><b>启用插件</b></label>
+            <label for="ta_enabled"><b>${t('ui.enable_plugin')}</b></label>
             <span id="ta_cdn_status" style="margin-left:auto;font-size:0.8em;"></span>
         </div>
 
         <hr class="sysHR">
 
         <div class="settings_section">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                <b>时间/天气注入适用角色</b>
-                <div id="ta_refresh_inject_chars" class="menu_button" style="font-size:0.8em;" title="刷新列表">🔄</div>
+            <b>${t('ui.lang.title')}</b>
+            <div class="ta_lang_row">
+                <select id="ta_lang_select" class="text_pole" style="min-width:220px;">
+                    <option value="auto">${t('ui.lang.auto')}</option>
+                    <option value="zh">${t('ui.lang.zh')}</option>
+                    <option value="en">${t('ui.lang.en')}</option>
+                </select>
             </div>
-            <div class="ta_section_note">不勾选任何角色 = 对所有角色生效。</div>
+            <div id="ta_lang_status" class="ta_section_note"></div>
+        </div>
+
+        <hr class="sysHR">
+
+        <div class="settings_section">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <b>${t('ui.role_scope_inject')}</b>
+                <div id="ta_refresh_inject_chars" class="menu_button" style="font-size:0.8em;" title="${t('ui.refresh_list')}">🔄</div>
+            </div>
+            <div class="ta_section_note">${t('ui.no_role_selected')}</div>
             <div id="ta_inject_character_list"></div>
         </div>
 
         <hr class="sysHR">
 
         <div class="settings_section">
-            <b>时间信息注入</b>
+            <b>${t('ui.time_inject')}</b>
             <div style="margin-top:8px;">
                 <label style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
-                    <input type="checkbox" id="ta_inject_timestamp"> 当前时间
+                    <input type="checkbox" id="ta_inject_timestamp"> ${t('ui.inject_timestamp')}
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
-                    <input type="checkbox" id="ta_inject_period"> 时间段（凌晨/早晨/上午/中午/下午/傍晚/夜晚/深夜）
+                    <input type="checkbox" id="ta_inject_period"> ${t('ui.inject_period')}
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
-                    <input type="checkbox" id="ta_inject_daytype"> 日期类型（工作日/周末/调休/节假日）
+                    <input type="checkbox" id="ta_inject_daytype"> ${t('ui.inject_daytype')}
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
-                    <input type="checkbox" id="ta_inject_holiday"> 法定节假日名称 + 第几天
+                    <input type="checkbox" id="ta_inject_holiday"> ${t('ui.inject_holiday')}
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
-                    <input type="checkbox" id="ta_inject_lunar"> 农历民俗节日
+                    <input type="checkbox" id="ta_inject_lunar"> ${t('ui.inject_lunar')}
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
-                    <input type="checkbox" id="ta_inject_gap"> 距离用户上次发言
+                    <input type="checkbox" id="ta_inject_gap"> ${t('ui.inject_gap')}
                 </label>
             </div>
             <div style="margin-top:6px;">
-                <label>注入位置
+                <label>${t('ui.prompt_pos')}
                     <select id="ta_prompt_pos" class="text_pole" style="width:170px;margin-left:6px;">
-                        <option value="system">扩展提示（系统）</option>
-                        <option value="world">世界书末尾</option>
-                        <option value="prefill">预填充（assistant）</option>
+                        <option value="system">${t('ui.prompt_pos_system')}</option>
+                        <option value="world">${t('ui.prompt_pos_world')}</option>
+                        <option value="prefill">${t('ui.prompt_pos_prefill')}</option>
                     </select>
                 </label>
             </div>
+
+            <div style="margin-top:8px;">
+                <label>注入方式
+                    <select id="ta_inject_mode" class="text_pole" style="width:220px;margin-left:6px;">
+                        <option value="macro">宏（推荐）</option>
+                        <option value="extension">扩展注入（旧模式）</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="ta_nager_row" style="margin-top:6px;">
+                <input type="text" id="ta_macro_name" class="text_pole" placeholder="宏名，如 time_awareness">
+                <div id="ta_macro_apply" class="menu_button ta-inline-btn">应用宏名</div>
+            </div>
+            <div id="ta_macro_status" class="ta_section_note"></div>
+            <div class="ta_section_note">可用占位符：<code id="ta_macro_token_preview">{{time_awareness}}</code></div>
+
             <div class="ta_test_row">
-                <div id="ta_btn_preview" class="menu_button ta-inline-btn" style="font-size:0.85em;">👁️ 预览当前注入内容</div>
+                <div id="ta_btn_preview" class="menu_button ta-inline-btn" style="font-size:0.85em;">${t('ui.preview')}</div>
             </div>
         </div>
 
         <hr class="sysHR">
 
         <div class="settings_section">
-            <b>🌤️ 天气与空气质量（Open-Meteo）</b>
+            <b>${t('ui.nager.title')}</b>
             <div class="ta_section_note">
-                仅注入天气数据，不会写入地区名称或坐标。请先搜索定位，或直接输入经纬度。
+                ${t('ui.nager.desc')}
             </div>
 
             <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
-                <input type="checkbox" id="ta_weather_enabled"> 启用天气注入
+                <input type="checkbox" id="ta_nager_enabled"> ${t('ui.nager.enable')}
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
+                <input type="checkbox" id="ta_nager_autodetect"> ${t('ui.nager.autodetect')}
+            </label>
+
+            <div class="ta_nager_row">
+                <input type="text" id="ta_nager_country_code" class="text_pole" placeholder="${t('ui.nager.code_placeholder')}">
+                <div id="ta_nager_apply_country" class="menu_button ta-inline-btn">${t('ui.apply')}</div>
+            </div>
+
+            <div class="ta_nager_row">
+                <select id="ta_nager_country_select" class="text_pole"></select>
+                <div id="ta_nager_refresh_countries" class="menu_button ta-inline-btn">${t('ui.refresh_country_list')}</div>
+            </div>
+
+            <div id="ta_nager_status" class="ta_section_note"></div>
+        </div>
+
+        <hr class="sysHR">
+
+        <div class="settings_section">
+            <b>${t('ui.weather.title')}</b>
+            <div class="ta_section_note">
+                ${t('ui.weather.desc')}
+            </div>
+
+            <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
+                <input type="checkbox" id="ta_weather_enabled"> ${t('ui.weather.enable')}
             </label>
 
             <div class="ta_weather_row">
-                <input type="text" id="ta_weather_location" class="text_pole" placeholder="输入城市/区县（可拼音），如：深圳南山 / shenzhen nanshan">
-                <div id="ta_weather_search" class="menu_button ta-inline-btn">搜索</div>
+                <input type="text" id="ta_weather_location" class="text_pole" placeholder="${t('ui.weather.location_placeholder')}">
+                <div id="ta_weather_search" class="menu_button ta-inline-btn">${t('ui.search')}</div>
             </div>
             <div class="ta_weather_row">
-                <input type="text" id="ta_weather_lat" class="text_pole" placeholder="纬度 Latitude，例如：35.07639">
-                <input type="text" id="ta_weather_lon" class="text_pole" placeholder="经度 Longitude，例如：118.31083">
-                <div id="ta_weather_apply_coord" class="menu_button ta-inline-btn">使用坐标</div>
+                <input type="text" id="ta_weather_lat" class="text_pole" placeholder="${t('ui.weather.lat_placeholder')}">
+                <input type="text" id="ta_weather_lon" class="text_pole" placeholder="${t('ui.weather.lon_placeholder')}">
+                <div id="ta_weather_apply_coord" class="menu_button ta-inline-btn">${t('ui.use_coord')}</div>
             </div>
             <div class="ta_weather_row">
-                <input type="text" id="ta_weather_lat_dms" class="text_pole" placeholder="纬度度分秒，如：35°4'35"">
-                <input type="text" id="ta_weather_lon_dms" class="text_pole" placeholder="经度度分秒，如：118°18'39"">
-                <div id="ta_weather_convert_dms" class="menu_button ta-inline-btn">度分秒换算</div>
+                <input type="text" id="ta_weather_lat_dms" class="text_pole" placeholder="${t('ui.weather.lat_dms_placeholder')}">
+                <input type="text" id="ta_weather_lon_dms" class="text_pole" placeholder="${t('ui.weather.lon_dms_placeholder')}">
+                <div id="ta_weather_convert_dms" class="menu_button ta-inline-btn">${t('ui.convert_dms')}</div>
             </div>
             <div id="ta_weather_results"></div>
             <div id="ta_weather_status" class="ta_section_note"></div>
 
             <div class="ta_weather_opts">
-                <label><input type="checkbox" id="ta_weather_current"> 当前天气</label>
-                <label><input type="checkbox" id="ta_weather_air"> 空气质量</label>
-                <label><input type="checkbox" id="ta_weather_forecast"> 未来预报</label>
-                <label>预报天数
+                <label><input type="checkbox" id="ta_weather_current"> ${t('ui.weather.current')}</label>
+                <label><input type="checkbox" id="ta_weather_air"> ${t('ui.weather.air')}</label>
+                <label><input type="checkbox" id="ta_weather_forecast"> ${t('ui.weather.forecast')}</label>
+                <label>${t('ui.weather.days')}
                     <input type="number" id="ta_weather_days" class="text_pole" min="1" max="7" step="1" style="width:60px;margin-left:6px;">
                 </label>
-                <label>更新间隔(分钟)
+                <label>${t('ui.weather.interval')}
                     <input type="number" id="ta_weather_interval" class="text_pole" min="5" max="180" step="5" style="width:60px;margin-left:6px;">
                 </label>
             </div>
 
             <div class="ta_test_row">
-                <div id="ta_weather_refresh" class="menu_button ta-inline-btn" style="font-size:0.85em;">🔄 手动更新天气</div>
+                <div id="ta_weather_refresh" class="menu_button ta-inline-btn" style="font-size:0.85em;">${t('ui.weather.refresh')}</div>
             </div>
         </div>
 
         <hr class="sysHR">
 
         <div class="settings_section">
-            <b>🎂 纪念日配置</b>
+            <b>${t('ui.anniv.title')}</b>
             <div class="ta_section_note">
-                日期格式 MM-DD，年份选填（用于计算第几年）。
+                ${t('ui.anniv.desc')}
             </div>
             <div id="ta_anniversary_list"></div>
             <div id="ta_add_anniversary" class="menu_button ta-inline-btn" style="margin-top:5px;text-align:center;">
-                ➕ 添加纪念日
+                ${t('ui.anniv.add')}
             </div>
         </div>
 
         <hr class="sysHR">
 
         <div class="settings_section">
-            <b>自动消息</b>
+            <b>${t('ui.auto.title')}</b>
             <div class="ta_section_note">
-                需保持 SillyTavern 页面处于打开状态。
+                ${t('ui.auto.desc')}
             </div>
 
             <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
-                <input type="checkbox" id="ta_auto_specialday"> 纪念日当天角色主动发消息
+                <input type="checkbox" id="ta_auto_specialday"> ${t('ui.auto.special')}
             </label>
             <label style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
-                <input type="checkbox" id="ta_auto_idle"> 用户长时间未发言时角色主动发消息
+                <input type="checkbox" id="ta_auto_idle"> ${t('ui.auto.idle')}
             </label>
 
             <div style="margin-top:8px;">
                 <label style="display:block;margin-bottom:5px;">
-                    闲置触发阈值（小时）
+                    ${t('ui.auto.idle_threshold')}
                     <input type="number" id="ta_idle_threshold" class="text_pole" min="0.5" max="72" step="0.5" style="width:75px;margin-left:6px;">
                 </label>
                 <label style="display:block;margin-bottom:5px;">
-                    到达阈值后检查间隔（分钟）
+                    ${t('ui.auto.idle_interval')}
                     <input type="number" id="ta_idle_interval" class="text_pole" min="1" max="360" step="1" style="width:75px;margin-left:6px;">
                 </label>
                 <label style="display:block;margin-bottom:5px;">
-                    每次检查触发概率（%）
+                    ${t('ui.auto.idle_probability')}
                     <input type="number" id="ta_idle_probability" class="text_pole" min="1" max="100" step="1" style="width:75px;margin-left:6px;">
                 </label>
             </div>
 
             <div class="ta_test_row">
-                <div id="ta_btn_test_idle" class="menu_button ta-inline-btn" style="font-size:0.85em;">手动测试闲置消息</div>
+                <div id="ta_btn_test_idle" class="menu_button ta-inline-btn" style="font-size:0.85em;">${t('ui.auto.test_idle')}</div>
             </div>
         </div>
 
@@ -1071,26 +1697,27 @@
 
         <div class="settings_section">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                <b>自动消息适用角色</b>
-                <div id="ta_refresh_chars" class="menu_button" style="font-size:0.8em;" title="刷新列表">🔄</div>
+                <b>${t('ui.role_scope_auto')}</b>
+                <div id="ta_refresh_chars" class="menu_button" style="font-size:0.8em;" title="${t('ui.refresh_list')}">🔄</div>
             </div>
-            <div class="ta_section_note">不勾选任何角色 = 对所有角色生效。</div>
+            <div class="ta_section_note">${t('ui.no_role_selected')}</div>
             <div id="ta_character_list"></div>
         </div>
 
     </div>
 </div>`;
+    }
 
     // ======================== UI 初始化 ========================
-    function initUI() {
+    async function initUI() {
         const settings = getSettings();
 
-        $('#extensions_settings').append(SETTINGS_HTML);
+        $('#extensions_settings').append(buildSettingsHtml());
 
         $('#ta_cdn_status').html(
             chineseDaysLoaded
-                ? '<span style="color:#4caf50;">节假日库 ✓</span>'
-                : '<span style="color:#f44336;">节假日库 ✗（CDN 不可达）</span>'
+                ? `<span style="color:#4caf50;">${t('ui.holiday_lib_ok')}</span>`
+                : `<span style="color:#f44336;">${t('ui.holiday_lib_fail')}</span>`
         );
 
         $('#ta_enabled').prop('checked', settings.enabled).on('change', function () {
@@ -1098,6 +1725,20 @@
             saveSettings();
             if (settings.enabled) { startMainTimer(); } else { stopMainTimer(); clearPrompt(); }
         });
+
+        $('#ta_lang_select').val(settings.langMode || 'auto').on('change', async function () {
+            const v = $(this).val();
+            settings.langMode = v;
+            saveSettings();
+            if (v === 'auto') {
+                await autoDetectLanguage(true);
+            } else {
+                await applyLanguage(v, 'manual');
+            }
+            startLangWatcher();
+        });
+
+        updateLangStatus();
 
         const checks = {
             '#ta_inject_timestamp': 'injectTimestamp',
@@ -1112,20 +1753,53 @@
             '#ta_weather_current': 'weatherIncludeCurrent',
             '#ta_weather_air': 'weatherIncludeAirQuality',
             '#ta_weather_forecast': 'weatherIncludeForecast',
+            '#ta_nager_enabled': 'nagerEnabled',
+            '#ta_nager_autodetect': 'nagerAutoDetect',
         };
         for (const [sel, key] of Object.entries(checks)) {
             $(sel).prop('checked', settings[key]).on('change', function () {
                 settings[key] = $(this).prop('checked');
                 saveSettings();
                 if (key === 'weatherEnabled') updateWeatherCache(true);
+                if (key === 'nagerEnabled') updateNagerCache(true);
             });
         }
+
+        $('#ta_nager_autodetect').on('change', async function () {
+            if ($(this).prop('checked')) {
+                await detectCountryByTimezone();
+            }
+        });
 
         $('#ta_prompt_pos').val(settings.promptPlacement).on('change', function () {
             settings.promptPlacement = $(this).val();
             saveSettings();
             buildAndInjectPrompt();
         });
+
+        $('#ta_inject_mode').val(settings.injectionMode || 'macro').on('change', function () {
+            settings.injectionMode = $(this).val();
+            saveSettings();
+            if (settings.injectionMode !== 'extension') {
+                applyExtensionPrompt('');
+            }
+            refreshMacroRegistration(true);
+            updateMacroStatus();
+            buildAndInjectPrompt();
+        });
+
+        $('#ta_macro_name').val(settings.macroName || 'time_awareness');
+        $('#ta_macro_apply').on('click', function () {
+            const newName = sanitizeMacroName($('#ta_macro_name').val());
+            settings.macroName = newName;
+            $('#ta_macro_name').val(newName);
+            saveSettings();
+            refreshMacroRegistration(true);
+            updateMacroStatus();
+            toastr.success(`宏已更新：{{${newName}}}`);
+        });
+
+        updateMacroStatus();
 
         const nums = {
             '#ta_idle_threshold': 'idleThresholdHours',
@@ -1153,7 +1827,7 @@
             const lonNum = Number(lon);
 
             if (lat === '' || lon === '' || Number.isNaN(latNum) || Number.isNaN(lonNum)) {
-                toastr.warning('请正确输入经纬度数字');
+                toastr.warning(t('toast.coord_invalid'));
                 return;
             }
 
@@ -1164,7 +1838,7 @@
 
             updateWeatherStatus();
             await updateWeatherCache(true);
-            toastr.success('已使用经纬度更新天气');
+            toastr.success(t('toast.coord_applied'));
         });
 
         $('#ta_weather_convert_dms').on('click', () => {
@@ -1172,7 +1846,7 @@
             const lonDms = $('#ta_weather_lon_dms').val().trim();
 
             if (!latDms && !lonDms) {
-                toastr.warning('请输入度分秒再换算');
+                toastr.warning(t('toast.dms_empty'));
                 return;
             }
 
@@ -1180,55 +1854,31 @@
             const lonDec = lonDms ? parseDmsToDecimal(lonDms) : null;
 
             if (latDms && (latDec === null || isNaN(latDec))) {
-                toastr.warning('纬度度分秒格式不正确');
+                toastr.warning(t('toast.dms_lat_invalid'));
                 return;
             }
             if (lonDms && (lonDec === null || isNaN(lonDec))) {
-                toastr.warning('经度度分秒格式不正确');
+                toastr.warning(t('toast.dms_lon_invalid'));
                 return;
             }
 
             if (latDec !== null) $('#ta_weather_lat').val(latDec);
             if (lonDec !== null) $('#ta_weather_lon').val(lonDec);
 
-            toastr.success('已换算为小数，请点击“使用坐标”应用');
-        });
-
-        $('#ta_weather_lat').val(settings.weatherLat || '');
-        $('#ta_weather_lon').val(settings.weatherLon || '');
-
-        $('#ta_weather_apply_coord').on('click', async () => {
-            const lat = $('#ta_weather_lat').val().trim();
-            const lon = $('#ta_weather_lon').val().trim();
-            const latNum = Number(lat);
-            const lonNum = Number(lon);
-
-            if (lat === '' || lon === '' || Number.isNaN(latNum) || Number.isNaN(lonNum)) {
-                toastr.warning('请正确输入经纬度数字');
-                return;
-            }
-
-            settings.weatherLat = latNum;
-            settings.weatherLon = lonNum;
-            settings.weatherLocationText = `坐标：${latNum}, ${lonNum}`;
-            saveSettings();
-
-            updateWeatherStatus();
-            await updateWeatherCache(true);
-            toastr.success('已使用经纬度更新天气');
+            toastr.success(t('toast.dms_converted'));
         });
 
         $('#ta_weather_search').on('click', async () => {
             const q = $('#ta_weather_location').val().trim();
             if (!q) {
-                toastr.warning('请输入城市/区县后再搜索');
+                toastr.warning(t('toast.search_empty'));
                 return;
             }
-            $('#ta_weather_results').html('<div class="ta_section_note">搜索中...</div>');
+            $('#ta_weather_results').html(`<div class="ta_section_note">${t('toast.searching')}</div>`);
             try {
                 const list = await searchLocation(q);
                 if (!list || list.length === 0) {
-                    $('#ta_weather_results').html('<div class="ta_section_note">未找到匹配地点</div>');
+                    $('#ta_weather_results').html(`<div class="ta_section_note">${t('toast.search_no_result')}</div>`);
                     return;
                 }
                 const $list = $('<div class="ta_weather_result_list"></div>');
@@ -1237,7 +1887,7 @@
                     const $row = $(`
                         <div class="ta_weather_result_item">
                             <div class="ta_weather_result_text">${escHtml(label)}</div>
-                            <div class="menu_button ta-inline-btn ta_weather_pick">选中</div>
+                            <div class="menu_button ta-inline-btn ta_weather_pick">${t('ui.pick')}</div>
                         </div>
                     `);
                     $row.find('.ta_weather_pick').on('click', () => {
@@ -1256,25 +1906,68 @@
                 $('#ta_weather_results').empty().append($list);
             } catch (e) {
                 console.warn(LOG, 'Geocode error:', e);
-                $('#ta_weather_results').html('<div class="ta_section_note">搜索失败，请稍后重试</div>');
+                $('#ta_weather_results').html(`<div class="ta_section_note">${t('toast.search_failed')}</div>`);
             }
         });
 
         $('#ta_weather_refresh').on('click', async () => {
             if (!settings.weatherEnabled) {
-                toastr.warning('请先启用天气注入');
+                toastr.warning(t('toast.weather_enable_first'));
                 return;
             }
             if (!settings.weatherLat || !settings.weatherLon) {
-                toastr.warning('请先搜索并选择地区');
+                toastr.warning(t('toast.weather_need_location'));
                 return;
             }
-            toastr.info('正在更新天气数据…');
+            toastr.info(t('toast.weather_updating'));
             await updateWeatherCache(true);
-            toastr.success('天气数据已更新');
+            toastr.success(t('toast.weather_updated'));
         });
 
         updateWeatherStatus();
+
+        $('#ta_nager_country_code').val(settings.nagerCountry || '');
+
+        await fetchNagerCountries();
+        renderNagerCountriesSelect();
+
+        $('#ta_nager_apply_country').on('click', async () => {
+            const code = $('#ta_nager_country_code').val().trim().toUpperCase();
+            if (!code || code.length !== 2) {
+                toastr.warning(t('toast.country_code_invalid'));
+                return;
+            }
+            settings.nagerCountry = code;
+            const match = nagerCountriesCache.list.find(x => x.countryCode === code);
+            settings.nagerCountryName = match ? match.name : '';
+            saveSettings();
+            renderNagerCountriesSelect();
+            updateNagerStatus();
+            await updateNagerCache(true);
+            buildAndInjectPrompt();
+        });
+
+        $('#ta_nager_country_select').on('change', async function () {
+            const code = $(this).val();
+            if (!code) return;
+            settings.nagerCountry = code;
+            const match = nagerCountriesCache.list.find(x => x.countryCode === code);
+            settings.nagerCountryName = match ? match.name : '';
+            $('#ta_nager_country_code').val(code);
+            saveSettings();
+            updateNagerStatus();
+            await updateNagerCache(true);
+            buildAndInjectPrompt();
+        });
+
+        $('#ta_nager_refresh_countries').on('click', async () => {
+            toastr.info(t('toast.country_list_updating'));
+            await fetchNagerCountries(true);
+            renderNagerCountriesSelect();
+            toastr.success(t('toast.country_list_updated'));
+        });
+
+        updateNagerStatus();
 
         renderAnniversaries();
         $('#ta_add_anniversary').on('click', () => {
@@ -1291,30 +1984,32 @@
 
         $('#ta_btn_preview').on('click', () => {
             const text = buildAndInjectPrompt();
-            toastr.info(text || '（当前无注入内容）', '当前 Prompt 注入', { timeOut: 8000, escapeHtml: false });
+            toastr.info(text || t('toast.no_prompt'), t('toast.prompt_title'), { timeOut: 8000, escapeHtml: false });
         });
 
         $('#ta_btn_test_idle').on('click', async () => {
             const ctx = SillyTavern.getContext();
             if (!ctx.getCurrentChatId()) {
-                toastr.warning('请先打开一个聊天');
+                toastr.warning(t('toast.open_chat_first'));
                 return;
             }
-            toastr.info('正在生成测试消息…');
+            toastr.info(t('toast.generating_test'));
             const charName = ctx.name2 || '角色';
-            const prompt = `[系统指令 - 对用户不可见]\n你是${charName}。这是一条测试，请你随意主动给用户发一条简短的消息，就像你突然想起来什么一样。\n直接输出你要发的内容。`;
+            const prompt = t('auto.test_prompt', { charName });
             const ok = await sendAsCharacter(prompt);
             if (ok) {
                 if (lastAutoSaveFailed) {
-                    toastr.warning(`消息已发送，但保存失败：${lastAutoSaveError || '未知错误'}`);
+                    toastr.warning(t('toast.message_saved_failed', { error: lastAutoSaveError || 'Unknown' }));
                 } else {
-                    toastr.success('测试消息已发送');
+                    toastr.success(t('toast.test_sent'));
                 }
             } else {
-                toastr.error(`生成失败：${lastAutoGenError || '请检查 API 连接'}`);
+                toastr.error(t('toast.gen_failed', { error: lastAutoGenError || t('toast.api_check') }));
             }
         });
 
+        uiMounted = true;
+        updateLangStatus();
         console.log(LOG, 'UI mounted');
     }
 
@@ -1330,11 +2025,11 @@
         settings.anniversaries.forEach((ann, idx) => {
             const $row = $(`
                 <div class="ta_anniversary_item">
-                    <input type="checkbox" class="ta_ann_en" ${ann.enabled ? 'checked' : ''} title="启用">
-                    <input type="text" class="ta_ann_name text_pole" value="${escHtml(ann.name)}" placeholder="名称（如：我的生日）" style="flex:1;min-width:80px;">
-                    <input type="text" class="ta_ann_date text_pole" value="${escHtml(ann.date)}" placeholder="MM-DD" style="width:70px;">
-                    <input type="text" class="ta_ann_year text_pole" value="${escHtml(ann.year)}" placeholder="年份(选填)" style="width:80px;">
-                    <div class="menu_button ta_ann_del" title="删除">🗑️</div>
+                    <input type="checkbox" class="ta_ann_en" ${ann.enabled ? 'checked' : ''} title="${t('ann.enable')}">
+                    <input type="text" class="ta_ann_name text_pole" value="${escHtml(ann.name)}" placeholder="${t('ann.name_placeholder')}" style="flex:1;min-width:80px;">
+                    <input type="text" class="ta_ann_date text_pole" value="${escHtml(ann.date)}" placeholder="${t('ann.date_placeholder')}" style="width:70px;">
+                    <input type="text" class="ta_ann_year text_pole" value="${escHtml(ann.year)}" placeholder="${t('ann.year_placeholder')}" style="width:80px;">
+                    <div class="menu_button ta_ann_del" title="${t('ann.delete')}">🗑️</div>
                 </div>
             `);
 
@@ -1371,7 +2066,7 @@
         const chars = SillyTavern.getContext().characters || [];
 
         if (chars.length === 0) {
-            $list.append('<div class="ta_section_note">暂无可用角色</div>');
+            $list.append(`<div class="ta_section_note">${t('ui.no_roles')}</div>`);
             return;
         }
 
@@ -1405,7 +2100,7 @@
         const chars = SillyTavern.getContext().characters || [];
 
         if (chars.length === 0) {
-            $list.append('<div class="ta_section_note">暂无可用角色</div>');
+            $list.append(`<div class="ta_section_note">${t('ui.no_roles')}</div>`);
             return;
         }
 
@@ -1455,12 +2150,30 @@
         console.log(LOG, 'Initializing…');
 
         await loadChineseDays();
-        initUI();
+        await ensureLangLoaded('zh');
+        await ensureLangLoaded('en');
+
+        const settings = getSettings();
+        currentLang = settings.langCurrent || LANG_DEFAULT;
+
+        await autoDetectLanguage(true);
+        await initUI();
+        refreshMacroRegistration(true);
+
         cleanOldTriggers();
         restoreLastUserMsgTime();
         flushPendingMessages();
         startMainTimer();
         updateWeatherCache(true);
+
+        if (getSettings().nagerAutoDetect) {
+            await detectCountryByTimezone();
+        }
+        await updateNagerCache(true);
+
+        buildAndInjectPrompt();
+
+        startLangWatcher();
 
         console.log(LOG, 'Ready ✓');
     });
@@ -1471,11 +2184,13 @@
 
     eventSource.on(event_types.MESSAGE_SENT, () => {
         onUserMessage();
+        buildAndInjectPrompt();
     });
 
     eventSource.on(event_types.CHAT_CHANGED, () => {
         onChatChanged();
         flushPendingMessages();
+        buildAndInjectPrompt();
     });
 
 })();
