@@ -208,6 +208,8 @@
         langLastSource: '',
         injectionMode: 'macro',
         macroName: 'time_awareness',
+        autoSpecialPromptTemplate: '',
+        autoIdlePromptTemplate: '',
     });
 
     // ======================== 运行时状态 ========================
@@ -227,6 +229,21 @@
         airError: '',
     };
     let weatherFetching = false;
+    let charWeatherCache = {
+        lastFetch: 0,
+        cacheKey: '',
+        markerRaw: '',
+        locationName: '',
+        lat: null,
+        lon: null,
+        tz: 'auto',
+        current: null,
+        daily: null,
+        ok: false,
+        error: '',
+    };
+    let charWeatherFetching = false;
+    let charWeatherGeoCache = {};
     let nagerCache = {
         lastFetch: 0,
         year: 0,
@@ -551,6 +568,284 @@
         return Number(dec.toFixed(6));
     }
 
+    function getCurrentCharacterCardText(ctx) {
+        if (!ctx || (ctx.characterId === undefined || ctx.characterId === null)) return '';
+        const ch = ctx.characters && ctx.characters[ctx.characterId];
+        if (!ch) return '';
+
+        const chunks = [];
+        const pushIfText = (v) => {
+            if (typeof v === 'string' && v.trim()) {
+                chunks.push(v.trim());
+            }
+        };
+
+        const fields = [
+            'name',
+            'description',
+            'personality',
+            'scenario',
+            'first_mes',
+            'mes_example',
+            'creator_notes',
+            'system_prompt',
+            'post_history_instructions',
+        ];
+
+        for (const f of fields) pushIfText(ch[f]);
+
+        if (ch.data && typeof ch.data === 'object') {
+            for (const f of fields) pushIfText(ch.data[f]);
+        }
+
+        return chunks.join('\n');
+    }
+
+    function parseCharWeatherMarker(text) {
+        if (!text) return null;
+
+        const m = text.match(/\[CHAR_WEATHER\|([^\]]+)\]/i);
+        if (!m) return null;
+
+        const markerRaw = m[0];
+        const body = m[1] || '';
+        const kv = {};
+
+        const parts = body.split('|');
+        for (const part of parts) {
+            const seg = String(part || '').trim();
+            if (!seg) continue;
+            const eq = seg.indexOf('=');
+            if (eq <= 0) continue;
+            const k = seg.slice(0, eq).trim().toLowerCase();
+            const v = seg.slice(eq + 1).trim();
+            if (!k || !v) continue;
+            kv[k] = v;
+        }
+
+        const tz = kv.tz || 'auto';
+        const name = kv.name || '';
+        const city = kv.city || kv.q || kv.location || '';
+
+        const hasLat = kv.lat !== undefined;
+        const hasLon = kv.lon !== undefined;
+
+        if (hasLat && hasLon) {
+            const lat = Number(kv.lat);
+            const lon = Number(kv.lon);
+            const valid = Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+            if (valid) {
+                return {
+                    markerRaw,
+                    mode: 'coord',
+                    lat,
+                    lon,
+                    tz,
+                    name,
+                };
+            }
+        }
+
+        if (city) {
+            return {
+                markerRaw,
+                mode: 'city',
+                city,
+                tz,
+                name,
+            };
+        }
+
+        return null;
+    }
+
+    function getCharacterWeatherSpec(ctx) {
+        const fullText = getCurrentCharacterCardText(ctx);
+        return parseCharWeatherMarker(fullText);
+    }
+
+    function clearCharWeatherCache() {
+        charWeatherCache = {
+            lastFetch: 0,
+            cacheKey: '',
+            markerRaw: '',
+            locationName: '',
+            lat: null,
+            lon: null,
+            tz: 'auto',
+            current: null,
+            daily: null,
+            ok: false,
+            error: '',
+        };
+    }
+
+    async function resolveCharacterWeatherSpec(spec) {
+        if (!spec) return null;
+
+        if (spec.mode === 'coord') {
+            return {
+                lat: spec.lat,
+                lon: spec.lon,
+                tz: spec.tz || 'auto',
+                name: spec.name || `${spec.lat.toFixed(2)}, ${spec.lon.toFixed(2)}`,
+            };
+        }
+
+        const cityKey = `${spec.city}|${spec.tz || 'auto'}`.toLowerCase();
+        const geoTtl = 24 * 60 * 60 * 1000;
+        const cached = charWeatherGeoCache[cityKey];
+        if (cached && Date.now() - cached.at < geoTtl) {
+            return cached;
+        }
+
+        const list = await searchLocation(spec.city);
+        if (!list || list.length === 0) {
+            throw new Error(t('error.char_weather_city_not_found', { city: spec.city }));
+        }
+
+        const first = list[0];
+        const resolved = {
+            lat: Number(first.latitude),
+            lon: Number(first.longitude),
+            tz: spec.tz && spec.tz !== 'auto' ? spec.tz : (first.timezone || 'auto'),
+            name: spec.name || formatGeoLabel(first),
+            at: Date.now(),
+        };
+
+        charWeatherGeoCache[cityKey] = resolved;
+        return resolved;
+    }
+
+    function getCharacterWeatherCacheKey(spec, resolved) {
+        const s = spec || {};
+        const r = resolved || {};
+        return [
+            s.markerRaw || '',
+            s.mode || '',
+            s.city || '',
+            s.lat !== undefined ? s.lat : '',
+            s.lon !== undefined ? s.lon : '',
+            r.lat !== undefined ? r.lat : '',
+            r.lon !== undefined ? r.lon : '',
+            r.tz || '',
+            r.name || '',
+        ].join('|');
+    }
+
+    async function updateCharWeatherCache(force = false) {
+        const ctx = SillyTavern.getContext();
+        if (!ctx.getCurrentChatId()) {
+            clearCharWeatherCache();
+            return;
+        }
+
+        const spec = getCharacterWeatherSpec(ctx);
+        if (!spec) {
+            clearCharWeatherCache();
+            return;
+        }
+
+        if (charWeatherFetching) return;
+
+        const intervalMs = Math.max(5, Number(getSettings().weatherUpdateMinutes || 30)) * 60000;
+
+        charWeatherFetching = true;
+        try {
+            const resolved = await resolveCharacterWeatherSpec(spec);
+            if (!resolved) {
+                clearCharWeatherCache();
+                return;
+            }
+
+            const cacheKey = getCharacterWeatherCacheKey(spec, resolved);
+            const now = Date.now();
+            if (!force && charWeatherCache.ok && charWeatherCache.cacheKey === cacheKey && now - charWeatherCache.lastFetch < intervalMs) {
+                return;
+            }
+
+            const params = new URLSearchParams({
+                latitude: String(resolved.lat),
+                longitude: String(resolved.lon),
+                timezone: resolved.tz || 'auto',
+                temperature_unit: 'celsius',
+                wind_speed_unit: 'kmh',
+                precipitation_unit: 'mm',
+                forecast_days: '3',
+                current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m',
+                daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+            });
+
+            const url = `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (!data || data.error) {
+                throw new Error(data && data.reason ? data.reason : 'char weather api error');
+            }
+            if (!data.current) {
+                throw new Error(t('error.char_weather_missing_current'));
+            }
+
+            charWeatherCache.lastFetch = Date.now();
+            charWeatherCache.cacheKey = cacheKey;
+            charWeatherCache.markerRaw = spec.markerRaw || '';
+            charWeatherCache.locationName = resolved.name || '';
+            charWeatherCache.lat = resolved.lat;
+            charWeatherCache.lon = resolved.lon;
+            charWeatherCache.tz = resolved.tz || 'auto';
+            charWeatherCache.current = data.current || null;
+            charWeatherCache.daily = data.daily || null;
+            charWeatherCache.ok = true;
+            charWeatherCache.error = '';
+        } catch (e) {
+            charWeatherCache.ok = false;
+            charWeatherCache.error = String(e && e.message ? e.message : e || '');
+        } finally {
+            charWeatherFetching = false;
+        }
+    }
+
+    function buildCharWeatherLines() {
+        if (!charWeatherCache.ok) return [];
+
+        const lines = [];
+
+        if (charWeatherCache.current) {
+            const c = charWeatherCache.current;
+            const text = [];
+            const wt = weatherCodeText(c.weather_code);
+            if (wt) text.push(wt);
+            if (c.temperature_2m !== undefined) text.push(`${fmtNum(c.temperature_2m, 1)}°C`);
+            if (c.apparent_temperature !== undefined) text.push(`${t('ui.weather.current')} ${fmtNum(c.apparent_temperature, 1)}°C`);
+            if (c.relative_humidity_2m !== undefined) text.push(`湿度${fmtNum(c.relative_humidity_2m, 0)}%`);
+            if (c.wind_speed_10m !== undefined) text.push(`风速${fmtNum(c.wind_speed_10m, 1)} km/h`);
+            if (text.length > 0) lines.push(text.join('，'));
+        }
+
+        if (charWeatherCache.daily && Array.isArray(charWeatherCache.daily.time) && charWeatherCache.daily.time.length > 0) {
+            const d = charWeatherCache.daily;
+            const n = Math.min(3, d.time.length);
+            const items = [];
+            for (let i = 0; i < n; i++) {
+                const date = new Date(d.time[i]);
+                const dayName = weekdayName(date.getDay());
+                const code = d.weather_code ? d.weather_code[i] : null;
+                const wt = code !== null ? weatherCodeText(code) : '';
+                const tmin = d.temperature_2m_min ? d.temperature_2m_min[i] : null;
+                const tmax = d.temperature_2m_max ? d.temperature_2m_max[i] : null;
+                const pop = d.precipitation_probability_max ? d.precipitation_probability_max[i] : null;
+                let s = `${dayName} ${wt || ''}`.trim();
+                if (tmin !== null && tmax !== null) s += ` ${fmtNum(tmin, 1)}~${fmtNum(tmax, 1)}°C`;
+                if (pop !== null && pop !== undefined) s += ` ${t('weather.precip')}${fmtNum(pop, 0)}%`;
+                items.push(s.trim());
+            }
+            if (items.length > 0) lines.push(items.join('；'));
+        }
+
+        return lines;
+    }
+
     // ======================== 天气工具 ========================
     function weatherCodeText(code) {
         const c = Number(code);
@@ -601,6 +896,30 @@
         if (r.admin1) parts.push(r.admin1);
         if (r.country) parts.push(r.country);
         return parts.filter(Boolean).join(' · ');
+    }
+
+    function fillTemplateVars(template, vars = {}) {
+        return String(template || '').replace(/\{(\w+)\}/g, (m, k) => {
+            return vars[k] !== undefined ? String(vars[k]) : m;
+        });
+    }
+
+    function getDefaultAutoPromptTemplate(type) {
+        if (type === 'special') return t('auto.special_prompt');
+        if (type === 'idle') return t('auto.idle_prompt');
+        return '';
+    }
+
+    function getAutoPromptByType(type, vars = {}) {
+        const settings = getSettings();
+        let tpl = '';
+        if (type === 'special') tpl = settings.autoSpecialPromptTemplate || '';
+        if (type === 'idle') tpl = settings.autoIdlePromptTemplate || '';
+
+        if (!tpl.trim()) {
+            tpl = getDefaultAutoPromptTemplate(type);
+        }
+        return fillTemplateVars(tpl, vars);
     }
 
     function updateWeatherStatus() {
@@ -1003,6 +1322,7 @@
         }
 
         updateWeatherCache();
+        updateCharWeatherCache();
 
         const now = new Date();
         const iso = fmtISO(now);
@@ -1100,6 +1420,13 @@
         if (weatherLines.length > 0) {
             lines.push(t('prompt.weather_info'));
             lines.push(...weatherLines.map(x => x.replace(/^.+?:\s*/, '')));
+        }
+
+        const charWeatherLines = buildCharWeatherLines();
+        if (charWeatherLines.length > 0) {
+            const location = charWeatherCache.locationName || t('prompt.char_weather_unknown_location');
+            lines.push(t('prompt.char_weather_info', { location }));
+            lines.push(...charWeatherLines);
         }
 
         const annivs = matchAnniversaries(now);
@@ -1367,7 +1694,7 @@
             }
 
             const charName = ctx.name2 || '角色';
-            const prompt = t('auto.special_prompt', { charName, desc });
+            const prompt = getAutoPromptByType('special', { charName, desc });
 
             const ok = await sendAsCharacter(prompt);
             if (ok) {
@@ -1412,7 +1739,7 @@
         const weatherText = weatherLines.length > 0 ? `\n${t('prompt.weather_info')}${weatherLines.join('；')}` : '';
 
         const charName = ctx.name2 || '角色';
-        const prompt = t('auto.idle_prompt', { charName, gapStr, timeLine, weatherText });
+        const prompt = getAutoPromptByType('idle', { charName, gapStr, timeLine, weatherText });
 
         await sendAsCharacter(prompt);
     }
@@ -1458,6 +1785,7 @@
         checkSpecialDay();
         checkIdleMessage();
         updateWeatherCache();
+        updateCharWeatherCache();
         updateNagerCache();
         buildAndInjectPrompt();
     }
@@ -1473,6 +1801,7 @@
         if ($('#ta_inject_character_list').length) {
             refreshInjectCharacterList();
         }
+        updateCharWeatherCache(true);
     }
 
     // ======================== Settings HTML 模板 ========================
@@ -1688,6 +2017,23 @@
                 </label>
             </div>
 
+            <div style="margin-top:8px;">
+                <div style="margin-bottom:4px;"><b>${t('ui.auto.prompt_special_label')}</b></div>
+                <textarea id="ta_auto_special_prompt" class="text_pole ta_prompt_editor" rows="6" placeholder="${t('ui.auto.prompt_placeholder')}"></textarea>
+                <div class="ta_test_row" style="margin-top:4px;">
+                    <div id="ta_auto_special_prompt_reset" class="menu_button ta-inline-btn" style="font-size:0.8em;">${t('ui.auto.prompt_reset_special')}</div>
+                </div>
+            </div>
+
+            <div style="margin-top:8px;">
+                <div style="margin-bottom:4px;"><b>${t('ui.auto.prompt_idle_label')}</b></div>
+                <textarea id="ta_auto_idle_prompt" class="text_pole ta_prompt_editor" rows="8" placeholder="${t('ui.auto.prompt_placeholder')}"></textarea>
+                <div class="ta_test_row" style="margin-top:4px;">
+                    <div id="ta_auto_idle_prompt_reset" class="menu_button ta-inline-btn" style="font-size:0.8em;">${t('ui.auto.prompt_reset_idle')}</div>
+                </div>
+                <div class="ta_section_note">${t('ui.auto.prompt_vars_hint')}</div>
+            </div>
+
             <div class="ta_test_row">
                 <div id="ta_btn_test_idle" class="menu_button ta-inline-btn" style="font-size:0.85em;">${t('ui.auto.test_idle')}</div>
             </div>
@@ -1814,6 +2160,33 @@
                 if (!isNaN(v) && v > 0) { settings[key] = v; saveSettings(); }
             });
         }
+
+        const defaultSpecialPrompt = getDefaultAutoPromptTemplate('special');
+        const defaultIdlePrompt = getDefaultAutoPromptTemplate('idle');
+
+        $('#ta_auto_special_prompt').val((settings.autoSpecialPromptTemplate || '').trim() ? settings.autoSpecialPromptTemplate : defaultSpecialPrompt).on('input', function () {
+            settings.autoSpecialPromptTemplate = $(this).val();
+            saveSettings();
+        });
+
+        $('#ta_auto_idle_prompt').val((settings.autoIdlePromptTemplate || '').trim() ? settings.autoIdlePromptTemplate : defaultIdlePrompt).on('input', function () {
+            settings.autoIdlePromptTemplate = $(this).val();
+            saveSettings();
+        });
+
+        $('#ta_auto_special_prompt_reset').on('click', function () {
+            settings.autoSpecialPromptTemplate = defaultSpecialPrompt;
+            $('#ta_auto_special_prompt').val(defaultSpecialPrompt);
+            saveSettings();
+            toastr.success(t('toast.auto_prompt_reset_special'));
+        });
+
+        $('#ta_auto_idle_prompt_reset').on('click', function () {
+            settings.autoIdlePromptTemplate = defaultIdlePrompt;
+            $('#ta_auto_idle_prompt').val(defaultIdlePrompt);
+            saveSettings();
+            toastr.success(t('toast.auto_prompt_reset_idle'));
+        });
 
         $('#ta_weather_location').val(settings.weatherLocationText || '');
 
@@ -1993,9 +2366,22 @@
                 toastr.warning(t('toast.open_chat_first'));
                 return;
             }
+
             toastr.info(t('toast.generating_test'));
+
             const charName = ctx.name2 || '角色';
-            const prompt = t('auto.test_prompt', { charName });
+            const now = new Date();
+            const timeLine = t('prompt.current_time', { date: fmtDate(now), time: fmtTime(now) }) + `（${timePeriod(now.getHours(), now.getMinutes())}）`;
+            const weatherLines = buildWeatherLines();
+            const weatherText = weatherLines.length > 0 ? `\n${t('prompt.weather_info')}${weatherLines.join('；')}` : '';
+
+            const prompt = getAutoPromptByType('idle', {
+                charName,
+                gapStr: '一段时间',
+                timeLine,
+                weatherText,
+            });
+
             const ok = await sendAsCharacter(prompt);
             if (ok) {
                 if (lastAutoSaveFailed) {
@@ -2165,6 +2551,7 @@
         flushPendingMessages();
         startMainTimer();
         updateWeatherCache(true);
+        updateCharWeatherCache(true);
 
         if (getSettings().nagerAutoDetect) {
             await detectCountryByTimezone();

@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## v1.4.0 - 2026.04.15
+
+### Added
+- Added editable auto-message prompt templates:
+  - Custom template for anniversary-triggered auto messages
+  - Custom template for idle-triggered auto messages
+  - Editable directly from the settings panel
+  - One-click reset to default template
+
+### Improved
+- Auto-message generation now prioritizes user-defined templates and falls back to built-in defaults when empty
+- Added documentation for the character weather marker format to make character-location weather injection easier to test
+
+### Notes
+- Supported character weather marker formats:
+  - `[CHAR_WEATHER|lat=35.07639|lon=118.31083|tz=Asia/Shanghai|name=Linyi]`
+  - `[CHAR_WEATHER|city=shenzhen nanshan|tz=Asia/Shanghai|name=Shenzhen Nanshan]`
+
 ## v1.3.0 - 2026.03.25
 
 ### Added

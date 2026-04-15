@@ -118,3 +118,11 @@
 #ta_settings .ta_weather_row .text_pole {
     min-width: 140px;
 }
+
+#ta_settings .ta_prompt_editor {
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+    line-height: 1.4;
+    font-size: 0.9em;
+}
