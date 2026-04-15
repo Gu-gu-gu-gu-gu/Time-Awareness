@@ -75,6 +75,12 @@ window.TimeAwarenessLangs.en = {
     "ui.auto.idle_interval": "Check interval after threshold (minutes)",
     "ui.auto.idle_probability": "Trigger probability each check (%)",
     "ui.auto.test_idle": "Test idle message",
+    "ui.auto.prompt_special_label": "Special-day auto message prompt",
+    "ui.auto.prompt_idle_label": "Idle auto message prompt",
+    "ui.auto.prompt_placeholder": "Edit prompt template here",
+    "ui.auto.prompt_reset_special": "Reset special-day default template",
+    "ui.auto.prompt_reset_idle": "Reset idle default template",
+    "ui.auto.prompt_vars_hint": "Variables: {charName}, {desc} (special-day); {charName}, {gapStr}, {timeLine}, {weatherText} (idle)",
     "ui.role_scope_auto": "Roles for auto messages",
     "ui.no_roles": "No roles available",
     "ui.pick": "Select",
@@ -104,6 +110,8 @@ window.TimeAwarenessLangs.en = {
     "toast.test_sent": "Test message sent",
     "toast.gen_failed": "Generation failed: {error}",
     "toast.api_check": "Check API connection",
+    "toast.auto_prompt_reset_special": "Special-day prompt reset to default",
+    "toast.auto_prompt_reset_idle": "Idle prompt reset to default",
 
     "status.weather_not_set": "Location not set. Search or input coordinates.",
     "status.weather_located": "Located: {location} ({lat}, {lon})",
@@ -173,9 +181,11 @@ window.TimeAwarenessLangs.en = {
     "prompt.lunar": "Lunar festivals: {names}",
     "prompt.gap": "Time since user's last message: {gap}",
     "prompt.weather_info": "Weather info:",
-    "prompt.weather_current": "Current weather: {text}",
+    "prompt.weather_current": "{{user}}'s location weather: {text}",
     "prompt.weather_air": "Air quality: {text}",
     "prompt.weather_forecast": "Forecast: {text}",
+    "prompt.char_weather_info": "{{char}}'s location weather ({location}):",
+    "prompt.char_weather_unknown_location": "Unnamed location",
     "prompt.anniv": "📌 Today is: {text}",
 
     "prompt.nager_daytype_holiday": " (Public holiday)",
@@ -192,5 +202,7 @@ window.TimeAwarenessLangs.en = {
     "auto.idle_prompt": "[System instruction - invisible to user]\nYou are {charName}. The user hasn't sent a message for {gapStr}.\n{timeLine}{weatherText}\nBased on the context and your relationship, send a natural proactive message.\nYou may remind the user about rest, meals, hydration, or dressing for weather, but don't lecture.\nDo not mention \"you haven't talked\" or reveal this is system-triggered.\nOutput only the message you want to send.",
     "auto.test_prompt": "[System instruction - invisible to user]\nYou are {charName}. This is a test. Please proactively send a short message as if you suddenly remembered something.\nOutput only the message you want to send.",
 
+    "error.char_weather_city_not_found": "Character weather location not found: {city}",
+    "error.char_weather_missing_current": "Character weather missing current data",
     "error.empty_gen": "Generated content is empty"
 };

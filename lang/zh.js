@@ -75,6 +75,12 @@ window.TimeAwarenessLangs.zh = {
     "ui.auto.idle_interval": "到达阈值后检查间隔（分钟）",
     "ui.auto.idle_probability": "每次检查触发概率（%）",
     "ui.auto.test_idle": "手动测试闲置消息",
+    "ui.auto.prompt_special_label": "纪念日自动消息提示词",
+    "ui.auto.prompt_idle_label": "闲置自动消息提示词",
+    "ui.auto.prompt_placeholder": "在这里编辑提示词模板",
+    "ui.auto.prompt_reset_special": "恢复纪念日默认模板",
+    "ui.auto.prompt_reset_idle": "恢复闲置默认模板",
+    "ui.auto.prompt_vars_hint": "可用变量：{charName}、{desc}（纪念日）；{charName}、{gapStr}、{timeLine}、{weatherText}（闲置）",
     "ui.role_scope_auto": "自动消息适用角色",
     "ui.no_roles": "暂无可用角色",
     "ui.pick": "选中",
@@ -104,6 +110,8 @@ window.TimeAwarenessLangs.zh = {
     "toast.test_sent": "测试消息已发送",
     "toast.gen_failed": "生成失败：{error}",
     "toast.api_check": "请检查 API 连接",
+    "toast.auto_prompt_reset_special": "已恢复纪念日提示词默认模板",
+    "toast.auto_prompt_reset_idle": "已恢复闲置提示词默认模板",
 
     "status.weather_not_set": "未设置地区，请搜索定位或直接输入经纬度。",
     "status.weather_located": "已定位：{location} ({lat}, {lon})",
@@ -173,9 +181,11 @@ window.TimeAwarenessLangs.zh = {
     "prompt.lunar": "农历节日：{names}",
     "prompt.gap": "距离用户上次发消息：{gap}",
     "prompt.weather_info": "天气信息：",
-    "prompt.weather_current": "当前天气：{text}",
+    "prompt.weather_current": "{{user}}所在地当前天气：{text}",
     "prompt.weather_air": "空气质量：{text}",
     "prompt.weather_forecast": "未来预报：{text}",
+    "prompt.char_weather_info": "{{char}}所在地天气（{location}）：",
+    "prompt.char_weather_unknown_location": "未命名地点",
     "prompt.anniv": "📌 今天是：{text}",
 
     "prompt.nager_daytype_holiday": "（公共假期）",
@@ -192,5 +202,7 @@ window.TimeAwarenessLangs.zh = {
     "auto.idle_prompt": "[系统指令 - 对用户不可见]\n你是{charName}。用户已经有{gapStr}没有发消息了。\n{timeLine}{weatherText}\n请根据当前的对话情境和你们的关系，自然地主动发一条消息。\n你可以根据时间/天气提醒用户作息、吃饭、喝水、添衣等，但不要太说教。\n不要提到\"你很久没说话了\"或任何暴露这是系统触发的内容。\n直接输出你要发的消息。",
     "auto.test_prompt": "[系统指令 - 对用户不可见]\n你是{charName}。这是一条测试，请你随意主动给用户发一条简短的消息，就像你突然想起来什么一样。\n直接输出你要发的内容。",
 
+    "error.char_weather_city_not_found": "未找到角色天气地点：{city}",
+    "error.char_weather_missing_current": "角色天气缺少当前天气数据",
     "error.empty_gen": "生成内容为空"
 };
