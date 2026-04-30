@@ -2290,7 +2290,7 @@
 
         <div class="settings_section">
             <b>诊断与排障</b>
-            <div class="ta_section_note">点击后会收集插件状态、缓存、最近日志、当前注入预览，方便反馈排查。</div>
+            <div class="ta_section_note">点击后会收集插件状态、缓存、最近日志、当前注入预览。</div>
             <div class="ta_test_row">
                 <div id="ta_btn_diag_copy" class="menu_button ta-inline-btn" style="font-size:0.85em;">一键诊断并复制</div>
                 <div id="ta_btn_diag_download" class="menu_button ta-inline-btn" style="font-size:0.85em;">下载诊断文件</div>
