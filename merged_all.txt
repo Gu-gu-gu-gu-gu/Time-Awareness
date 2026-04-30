@@ -1,6 +1,437 @@
+///// CHANGELOG.en.md /////
+# CHANGELOG
+
+## v1.4.0 - 2026.04.15
+
+### Added
+- Added editable auto-message prompt templates:
+  - Custom template for anniversary-triggered auto messages
+  - Custom template for idle-triggered auto messages
+  - Editable directly from the settings panel
+  - One-click reset to default template
+
+### Improved
+- Auto-message generation now prioritizes user-defined templates and falls back to built-in defaults when empty
+- Added documentation for the character weather marker format to make character-location weather injection easier to test
+
+### Notes
+- Supported character weather marker formats:
+  - `[CHAR_WEATHER|lat=35.07639|lon=118.31083|tz=Asia/Shanghai|name=Linyi]`
+  - `[CHAR_WEATHER|city=shenzhen nanshan|tz=Asia/Shanghai|name=Shenzhen Nanshan]`
+
+## v1.3.0 - 2026.03.25
+
+### Added
+- **Macro Injection Mode**: Added support for using a macro token to control where time-awareness content is injected.
+  You can now place it freely in **System Prompt**, **User Prompt**, **World Info**, or **Character Card**.
+- **Custom Macro Name**: You can now customize the macro name in the settings panel.
+
+---
+
+## v1.2.0 - 2026.03.24
+
+### Added
+- Selectable injection target (**System / World Info / Prefill**)
+- Direct latitude/longitude input and DMS-to-decimal conversion
+- Character filter for time prompt injection scope
+
+### Fixed
+- Auto messages not being saved into chat history
+- Auto messages being lost after leaving a chat
+- Improved compatibility with save/render flows across different SillyTavern versions
+
+### Improved
+- Increased stability of the auto-message insertion pipeline
+
+---
+
+## v1.1.0 - 2026.03.21
+
+### Added
+- Open-Meteo weather / air quality / forecast injection
+- Region-based search and location selection (city / district)
+- Weather cache and scheduled refresh
+
+### Fixed
+- Auto messages not being saved after refresh (chat save is now forced)
+
+### Improved
+- Prompt structure and injection logic
+
+---
+
+## v1.0.0
+
+### Initial Release
+- Time-awareness prompt injection
+- Holiday detection (`chinese-days`)
+- Anniversary reminders
+- Auto messages (anniversary + idle greeting)
+
+///// CHANGELOG.md /////
+# 更新日志（CHANGELOG）
+
+## [v1.4.0] - 2026-03-25
+
+### 新增
+- 新增“自动消息提示词模板可编辑”功能：
+  - 可分别自定义“纪念日自动消息提示词”
+  - 可分别自定义“闲置自动消息提示词”
+  - 支持在设置面板中直接编辑，无需手改代码
+  - 支持一键恢复默认模板
+
+### 改进
+- 自动消息生成逻辑改为优先读取用户自定义模板，未填写时自动回退到内置默认模板
+- 补充角色地点天气标记格式说明，便于在角色卡中测试地点天气注入
+
+### 说明
+- 角色卡天气标记支持以下格式：
+  - `[CHAR_WEATHER|lat=35.07639|lon=118.31083|tz=Asia/Shanghai|name=临沂]`
+  - `[CHAR_WEATHER|city=shenzhen nanshan|tz=Asia/Shanghai|name=深圳南山]`
+
+## [v1.3.0] - 2026-03-25
+
+### 新增
+- 新增「宏注入」模式：
+  - 支持通过宏占位符（默认：`{{time_awareness}}`）控制时间信息注入位置。
+  - 可在 System Prompt、User Prompt、世界书、角色卡等支持宏的位置自由放置。
+- 新增「自定义宏名称」：
+  - 可在设置面板中修改宏名，按你的提示词体系统一管理。
+
+### 改进
+- 优化注入策略：
+  - 宏模式下不再强制走扩展注入，避免预填充未生效、世界书注入位置异常等问题。
+- 提升提示词编排灵活性与可控性，便于与复杂预设共存。
+
+---
+
+## [v1.2.0] - 2026-03-24
+
+### 新增
+- 新增注入位置可选：系统 / 世界书 / 预填充。
+- 新增经纬度手动输入与度分秒（DMS）转十进制度。
+- 新增注入适用角色筛选（按角色控制注入范围）。
+
+### 修复
+- 修复自动消息未写入聊天历史的问题。
+- 修复离开聊天后自动消息丢失的问题。
+- 修复并兼容不同 SillyTavern 版本下的保存与渲染流程差异。
+
+### 改进
+- 优化自动消息插入与保存链路，整体稳定性提升。
+
+---
+
+## [v1.1.0] - 2026-03-21
+
+### 新增
+- 新增 Open-Meteo 天气注入能力：
+  - 实时天气
+  - 空气质量
+  - 多日预报
+- 新增地区搜索定位（城市 / 区县）。
+- 新增天气缓存与定时更新机制。
+
+### 修复
+- 修复自动消息刷新后不保存的问题（增加强制保存兜底）。
+
+### 改进
+- 优化提示词结构与注入逻辑。
+
+---
+
+## [v1.0.0]
+
+### 首发
+- 时间感知注入。
+- 节假日识别（`chinese-days`）。
+- 纪念日提示。
+- 自动消息（纪念日 / 闲置问候）。
+
+///// README.md /////
+# ⏰ Time Awareness for SillyTavern
+
+[![中文](https://img.shields.io/badge/中文-README-green)](README.zh-CN.md)
+[![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG-brightgreen)](CHANGELOG.en.md)
+
+A SillyTavern extension that gives your LLM real-time awareness of **time, day context, holidays, weather, and air quality**, with optional proactive auto-messages for anniversaries and idle chats.
+
+## Features
+
+- **Time Awareness Injection**
+  - Current date and time
+  - Time period (dawn / morning / noon / afternoon / evening / night / late night)
+  - Workday / weekend / holiday context
+  - Time gap since last user message
+
+- **Dual Holiday System**
+  - **China (`CN`)**: `chinese-days` (official holidays, make-up workdays, lunar festivals)
+  - **Non-CN countries**: `Nager.Date` public holiday API
+
+- **Anniversary Support**
+  - Custom anniversaries (birthday, milestones, etc.)
+  - Optional year counter (e.g. Year N)
+  - Can be injected into prompt and used for auto-messages
+
+- **Weather + Air Quality (Open-Meteo)**
+  - Location search by text
+  - Current weather, AQI, and multi-day forecast
+  - Cache + refresh interval control
+
+- **Auto Messages (Optional)**
+  - Character sends a proactive message on special days
+  - Idle-triggered proactive chat by probability
+  - Character whitelist support
+
+- **Multilingual UI**
+  - Chinese / English
+  - Auto follow SillyTavern language, with manual override
+
+- **Flexible Injection Modes**
+  - **Macro mode (recommended):** place output exactly where you want in preset/world info/template
+  - **Extension prompt mode (legacy):** plugin injects through `setExtensionPrompt`
+
+---
+
+## Installation
+
+### Option A: Install from SillyTavern UI
+
+1. Open SillyTavern → Extensions
+2. Click `Install extension`
+3. Paste repository clone URL
+4. Click `Install`
+5. Refresh SillyTavern page
+
+### Option B: Manual install
+
+1. Download and unzip repository
+2. Put folder into:
+   `SillyTavern/public/scripts/extensions/third-party/`
+3. Refresh SillyTavern page
+
+---
+
+## Quick Start
+
+1. Enable the plugin
+2. Choose injection mode:
+   - Macro (recommended)
+   - Extension prompt (legacy)
+3. Enable modules you need (time/holiday/weather/auto-message)
+4. Use Preview to inspect final generated time block
+
+---
+
+## Injection Modes
+
+### 1) Macro Mode (Recommended)
+
+In macro mode, the plugin does not force-inject extension prompt.
+You decide exact placement via a macro token in preset/world info/system prompt template.
+
+- Default macro name: `time_awareness`
+- Macro token: `{{time_awareness}}`
+- If renamed to `my_time`, token becomes: `{{my_time}}`
+
+### 2) Extension Prompt Mode (Legacy)
+
+Plugin injects via `setExtensionPrompt` into system/world/prefill.
+If prompt ordering behaves oddly in your frontend build, switch to macro mode.
+
+---
+
+## Holiday Logic
+
+- If country code is `CN`, use `chinese-days`
+- Otherwise use `Nager.Date`
+- Optional auto country detection by timezone (`WorldTimeAPI` helper)
+
+---
+
+## Weather / Air Quality
+
+1. Search location name
+2. Pick a result to save coordinates
+3. Enable weather injection
+4. Toggle content:
+   - Current weather
+   - Air quality
+   - Forecast (1–7 days)
+5. Set refresh interval
+
+---
+
+## Auto Message Notes
+
+This is a front-end extension.
+Your browser page must remain open for timer checks and triggers to run.
+
+---
+
+## FAQ
+
+- **Why no trigger when browser is closed?**
+  Because all logic runs in front-end JavaScript.
+
+- **Holiday data missing?**
+  Usually API/CDN unreachable. Plugin falls back to workday/weekend logic.
+
+- **Character list empty?**
+  Load/import characters first, then click refresh (🔄).
+
+- **Macro mode enabled but no injected content?**
+  Make sure your template actually contains the macro token (e.g. `{{time_awareness}}`).
+
+---
+
+## Credits
+
+- **chinese-days**
+  https://github.com/vsme/chinese-days
+  License: MIT
+
+- **Nager.Date**
+  https://date.nager.at
+
+- **Open-Meteo**
+  https://open-meteo.com
+  License: CC BY 4.0
+  Citation: Zippenfenig, P. (2023). Open-Meteo.com Weather API [Computer software]. Zenodo. https://doi.org/10.5281/ZENODO.7970649
+
+- **WorldTimeAPI**
+  https://worldtimeapi.org/
+
+///// README.zh-CN.md /////
+# ⏰ SillyTavern 时间感知插件（Time Awareness）
+
+[![English](https://img.shields.io/badge/English-README-blue)](README.md)
+[![更新日志](https://img.shields.io/badge/更新日志-CHANGELOG-brightgreen)](CHANGELOG.md)
+
+用于 [SillyTavern](https://github.com/SillyTavern/SillyTavern)，让 LLM 获得“当前时间 + 日期氛围 + 节假日 + 天气空气质量”感知，并支持纪念日/久未发言自动消息。
+
+## 功能亮点
+
+- **时间感知注入**
+  - 当前日期与时间
+  - 时间段（凌晨/早晨/上午/中午/下午/傍晚/夜晚/深夜）
+  - 工作日/周末/节假日
+  - 距离用户上次发言时间间隔
+
+- **双节假日体系**
+  - 中国地区：`chinese-days`（法定节假日、调休、农历民俗节日）
+  - 非中国地区：`Nager.Date` 公共假期 API（按国家代码）
+
+- **纪念日提示**
+  - 自定义纪念日（生日/周年等）
+  - 支持“第 N 年”自动计算
+  - 可注入提示词，也可触发自动消息
+
+- **天气与空气质量（Open-Meteo）**
+  - 输入地名搜索并保存经纬度
+  - 注入当前天气、空气质量、未来预报
+  - 支持缓存与刷新间隔控制
+
+- **自动消息**
+  - 纪念日当天角色主动消息
+  - 久未发言按概率触发主动问候
+  - 支持按角色白名单生效
+
+- **多语言界面**
+  - 中文 / 英文
+  - 可自动跟随 SillyTavern 语言，也可手动指定
+
+- **两种注入模式**
+  - **宏模式（推荐）**：你在预设/世界书/模板里自己决定插入位置
+  - **扩展注入模式（旧）**：插件通过 `setExtensionPrompt` 自动注入
+
+---
+
+## 安装方式
+
+### 方式一：SillyTavern 内置安装
+
+1. 打开 SillyTavern → Extensions
+2. 点击 `Install extension`
+3. 粘贴仓库克隆 URL
+4. 点击 `Install`
+5. 刷新页面
+
+### 方式二：手动安装
+
+1. 下载并解压仓库
+2. 放入目录：`SillyTavern/public/scripts/extensions/third-party/`
+3. 刷新页面
+
+---
+
+## 快速开始
+
+1. 勾选“启用插件”
+2. 选择注入方式（推荐宏模式）
+3. 按需开启时间/节假日/天气/自动消息
+4. 点击“预览”确认当前注入内容
+
+---
+
+## 注入模式说明
+
+### 1）宏模式（推荐）
+
+宏模式下，插件不强制注入 Extension Prompt。
+你可以在预设、世界书、系统提示模板中手动放置宏占位符，精确控制位置。
+
+- 默认宏名：`time_awareness`
+- 占位符：`{{time_awareness}}`
+- 若改名为 `my_time`，占位符就是 `{{my_time}}`
+
+### 2）扩展注入模式（旧）
+
+插件通过 `setExtensionPrompt` 注入到 system/world/prefill。
+若遇到前端版本导致位置异常，建议切回宏模式。
+
+---
+
+## 节假日逻辑
+
+- 国家代码为 `CN` 时，使用 `chinese-days`
+- 国家代码非 `CN` 时，使用 `Nager.Date`
+- 可选按时区自动识别国家（借助 `WorldTimeAPI`）
+
+---
+
+## 常见问题
+
+- **为什么必须开着页面？**
+  因为插件是前端 JS 运行，页面关闭后定时任务停止。
+
+- **节假日信息没显示？**
+  常见原因是 API/CDN 不可达，会自动降级为工作日/周末判断。
+
+- **宏模式没生效？**
+  请检查你放置的模板里是否真的写了宏占位符（如 `{{time_awareness}}`）。
+
+---
+
+## 致谢
+
+- **chinese-days**
+  https://github.com/vsme/chinese-days
+  License: MIT
+
+- **Nager.Date**
+  https://date.nager.at
+
+- **Open-Meteo**
+  https://open-meteo.com
+
+- **WorldTimeAPI**
+  https://worldtimeapi.org/
+
+///// index.js /////
 /* ============================================================
  *  Time Awareness Plugin for SillyTavern
- *  v1.5.0
+ *  v1.3.0
  * ============================================================ */
 
 (async function () {
@@ -266,8 +697,6 @@
     let langWatcher = null;
     let uiMounted = false;
     let registeredMacroName = '';
-    let debugLogs = [];
-    const DEBUG_LOG_LIMIT = 400;
 
     // ======================== 设置工具 ========================
     function getSettings() {
@@ -393,239 +822,6 @@
         } else {
             $('#ta_macro_status').text('当前为旧注入模式（Extension Prompt）');
         }
-    }
-
-    function pushDebugLog(level, message, extra = null) {
-        const item = {
-            time: new Date().toISOString(),
-            level: String(level || 'INFO').toUpperCase(),
-            message: String(message || ''),
-            extra: extra === undefined ? null : extra,
-        };
-        debugLogs.push(item);
-        if (debugLogs.length > DEBUG_LOG_LIMIT) {
-            debugLogs = debugLogs.slice(debugLogs.length - DEBUG_LOG_LIMIT);
-        }
-    }
-
-    function wrapConsoleForDebug() {
-        if (window.__TA_DEBUG_CONSOLE_WRAPPED__) return;
-        window.__TA_DEBUG_CONSOLE_WRAPPED__ = true;
-
-        const rawLog = console.log.bind(console);
-        const rawWarn = console.warn.bind(console);
-        const rawError = console.error.bind(console);
-
-        console.log = (...args) => {
-            try {
-                if (args && args.length > 0 && String(args[0]).includes(LOG)) {
-                    pushDebugLog('log', args.map(a => {
-                        try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (_) { return String(a); }
-                    }).join(' '));
-                }
-            } catch (_) { }
-            rawLog(...args);
-        };
-
-        console.warn = (...args) => {
-            try {
-                if (args && args.length > 0 && String(args[0]).includes(LOG)) {
-                    pushDebugLog('warn', args.map(a => {
-                        try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (_) { return String(a); }
-                    }).join(' '));
-                }
-            } catch (_) { }
-            rawWarn(...args);
-        };
-
-        console.error = (...args) => {
-            try {
-                if (args && args.length > 0 && String(args[0]).includes(LOG)) {
-                    pushDebugLog('error', args.map(a => {
-                        try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (_) { return String(a); }
-                    }).join(' '));
-                }
-            } catch (_) { }
-            rawError(...args);
-        };
-    }
-
-    function safeStringify(obj) {
-        try {
-            return JSON.stringify(obj, null, 2);
-        } catch (_) {
-            return String(obj);
-        }
-    }
-
-    function maskText(value, keepStart = 2, keepEnd = 2) {
-        const s = String(value || '');
-        if (s.length <= keepStart + keepEnd) return '*'.repeat(Math.max(1, s.length));
-        return `${s.slice(0, keepStart)}***${s.slice(-keepEnd)}`;
-    }
-
-    function maskCoord(value) {
-        const n = Number(value);
-        if (!Number.isFinite(n)) return value;
-        return Number(n.toFixed(2));
-    }
-
-    function sanitizeUrl(raw) {
-        const s = String(raw || '');
-        if (!s) return s;
-        const q = s.indexOf('?');
-        if (q < 0) return s;
-        return `${s.slice(0, q)}?***`;
-    }
-
-    function sanitizeSettingsForDiag(settings) {
-        const s = structuredClone(settings);
-
-        if (s.weatherLat !== undefined && s.weatherLat !== '') s.weatherLat = maskCoord(s.weatherLat);
-        if (s.weatherLon !== undefined && s.weatherLon !== '') s.weatherLon = maskCoord(s.weatherLon);
-        if (typeof s.weatherLocationText === 'string' && s.weatherLocationText) s.weatherLocationText = maskText(s.weatherLocationText, 2, 0);
-
-        if (Array.isArray(s.autoMessageCharacters)) {
-            s.autoMessageCharacters = s.autoMessageCharacters.map((x, i) => `char_${i + 1}`);
-        }
-        if (Array.isArray(s.injectCharacters)) {
-            s.injectCharacters = s.injectCharacters.map((x, i) => `char_${i + 1}`);
-        }
-
-        return s;
-    }
-
-    function sanitizeCacheForDiag() {
-        return {
-            weatherCache: {
-                ...weatherCache,
-                current: weatherCache.current ? {
-                    ...weatherCache.current,
-                    latitude: undefined,
-                    longitude: undefined,
-                } : weatherCache.current,
-            },
-            charWeatherCache: {
-                ...charWeatherCache,
-                locationName: charWeatherCache.locationName ? maskText(charWeatherCache.locationName, 2, 0) : '',
-                lat: charWeatherCache.lat !== null ? maskCoord(charWeatherCache.lat) : null,
-                lon: charWeatherCache.lon !== null ? maskCoord(charWeatherCache.lon) : null,
-                markerRaw: charWeatherCache.markerRaw ? maskText(charWeatherCache.markerRaw, 8, 2) : '',
-            },
-            nagerCache,
-            nagerCountriesCache: {
-                ...nagerCountriesCache,
-                list: Array.isArray(nagerCountriesCache.list) ? nagerCountriesCache.list.length : 0,
-            },
-        };
-    }
-
-    function collectDiagnostics() {
-        const ctx = SillyTavern.getContext();
-        const settings = getSettings();
-        const now = new Date();
-
-        const currentChar = (ctx.characterId !== undefined && ctx.characterId !== null && ctx.characters)
-            ? ctx.characters[ctx.characterId]
-            : null;
-
-        const macroName = sanitizeMacroName(settings.macroName || 'time_awareness');
-        const macroToken = getMacroToken(macroName);
-
-        const diag = {
-            report_version: '1.1',
-            generated_at: now.toISOString(),
-            plugin: {
-                module: MODULE_NAME,
-                manifest_version: '1.4.0',
-                registeredMacroName,
-                currentLang,
-                chineseDaysLoaded,
-                weatherFetching,
-                charWeatherFetching,
-                nagerDetecting,
-                isAutoGenerating,
-                mainTimerRunning: !!mainTimerHandle,
-                langWatcherRunning: !!langWatcher,
-            },
-            environment: {
-                userAgent: navigator.userAgent,
-                language: navigator.language,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                url: sanitizeUrl(location.href),
-            },
-            chat: {
-                chatId: ctx.getCurrentChatId ? ctx.getCurrentChatId() : null,
-                characterId: ctx.characterId,
-                characterNameMasked: currentChar ? maskText(currentChar.name || 'unknown', 1, 0) : '',
-                messageCount: Array.isArray(ctx.chat) ? ctx.chat.length : 0,
-                lastUserMessageTime,
-                idleTriggeredThisPeriod,
-                lastIdleRollTime,
-            },
-            macro_diagnosis: {
-                injectionMode: settings.injectionMode,
-                macroName,
-                macroToken,
-                registeredMacroName,
-                isMacroNameMatched: registeredMacroName === macroName,
-                hint: settings.injectionMode === 'macro'
-                    ? '宏模式下需要确认预设/世界书/系统模板中真实存在该占位符'
-                    : '当前不是宏模式，宏占位符不会被替换',
-            },
-            settings_snapshot: sanitizeSettingsForDiag(settings),
-            cache_snapshot: sanitizeCacheForDiag(),
-            last_errors: {
-                lastAutoSaveFailed,
-                lastAutoSaveError,
-                lastAutoGenError,
-            },
-            recent_logs: debugLogs.slice(-200),
-            preview_prompt: buildTimePromptText(),
-        };
-
-        return diag;
-    }
-
-    function diagnosticsToText(diagObj) {
-        return [
-            '===== Time Awareness Diagnostics =====',
-            safeStringify(diagObj),
-            '===== End Diagnostics ====='
-        ].join('\n');
-    }
-
-    async function copyTextToClipboard(text) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(text);
-            return true;
-        }
-
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        return ok;
-    }
-
-    function downloadDiagnostics(text) {
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const ts = new Date();
-        const filename = `time-awareness-diagnostics-${ts.getFullYear()}${pad2(ts.getMonth() + 1)}${pad2(ts.getDate())}-${pad2(ts.getHours())}${pad2(ts.getMinutes())}${pad2(ts.getSeconds())}.txt`;
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     // ======================== 加载 chinese-days ========================
@@ -2077,7 +2273,7 @@
                 <div id="ta_refresh_inject_chars" class="menu_button" style="font-size:0.8em;" title="${t('ui.refresh_list')}">🔄</div>
             </div>
             <div class="ta_section_note">${t('ui.no_role_selected')}</div>
-            <select id="ta_inject_character_select" class="text_pole" multiple></select>
+            <div id="ta_inject_character_list"></div>
         </div>
 
         <hr class="sysHR">
@@ -2283,18 +2479,7 @@
                 <div id="ta_refresh_chars" class="menu_button" style="font-size:0.8em;" title="${t('ui.refresh_list')}">🔄</div>
             </div>
             <div class="ta_section_note">${t('ui.no_role_selected')}</div>
-            <select id="ta_auto_character_select" class="text_pole" multiple></select>
-        </div>
-
-        <hr class="sysHR">
-
-        <div class="settings_section">
-            <b>诊断与排障</b>
-            <div class="ta_section_note">点击后会收集插件状态、缓存、最近日志、当前注入预览，方便反馈排查。</div>
-            <div class="ta_test_row">
-                <div id="ta_btn_diag_copy" class="menu_button ta-inline-btn" style="font-size:0.85em;">一键诊断并复制</div>
-                <div id="ta_btn_diag_download" class="menu_button ta-inline-btn" style="font-size:0.85em;">下载诊断文件</div>
-            </div>
+            <div id="ta_character_list"></div>
         </div>
 
     </div>
@@ -2667,28 +2852,6 @@
             }
         });
 
-        $('#ta_btn_diag_copy').on('click', async () => {
-            try {
-                const diag = collectDiagnostics();
-                const text = diagnosticsToText(diag);
-                await copyTextToClipboard(text);
-                toastr.success('诊断信息已复制，请直接粘贴发送给开发者');
-            } catch (e) {
-                toastr.error(`复制失败：${String(e && e.message ? e.message : e || '')}`);
-            }
-        });
-
-        $('#ta_btn_diag_download').on('click', () => {
-            try {
-                const diag = collectDiagnostics();
-                const text = diagnosticsToText(diag);
-                downloadDiagnostics(text);
-                toastr.success('诊断文件已下载');
-            } catch (e) {
-                toastr.error(`下载失败：${String(e && e.message ? e.message : e || '')}`);
-            }
-        });
-
         uiMounted = true;
         updateLangStatus();
         console.log(LOG, 'UI mounted');
@@ -2743,53 +2906,69 @@
     // ======================== 角色多选列表 ========================
     function refreshCharacterList() {
         const settings = getSettings();
-        const $sel = $('#ta_auto_character_select');
+        const $list = $('#ta_character_list').empty();
         const chars = SillyTavern.getContext().characters || [];
 
-        $sel.empty();
-
         if (chars.length === 0) {
-            $sel.append(`<option value="">${t('ui.no_roles')}</option>`);
+            $list.append(`<div class="ta_section_note">${t('ui.no_roles')}</div>`);
             return;
         }
 
         chars.forEach((ch) => {
             const key = ch.avatar || ch.name;
             if (!key) return;
-            const selected = settings.autoMessageCharacters.includes(key) ? 'selected' : '';
-            $sel.append(`<option value="${escHtml(key)}" ${selected}>${escHtml(ch.name || key)}</option>`);
-        });
-
-        $sel.off('change').on('change', function () {
-            const vals = $(this).val();
-            settings.autoMessageCharacters = Array.isArray(vals) ? vals : [];
-            saveSettings();
+            const checked = settings.autoMessageCharacters.includes(key);
+            const $item = $(`
+                <label class="ta_char_item">
+                    <input type="checkbox" class="ta_char_cb" data-key="${escHtml(key)}" ${checked ? 'checked' : ''}>
+                    <span>${escHtml(ch.name || key)}</span>
+                </label>
+            `);
+            $item.find('.ta_char_cb').on('change', function () {
+                const k = $(this).data('key');
+                const on = $(this).prop('checked');
+                if (on && !settings.autoMessageCharacters.includes(k)) {
+                    settings.autoMessageCharacters.push(k);
+                } else if (!on) {
+                    settings.autoMessageCharacters = settings.autoMessageCharacters.filter(x => x !== k);
+                }
+                saveSettings();
+            });
+            $list.append($item);
         });
     }
 
     function refreshInjectCharacterList() {
         const settings = getSettings();
-        const $sel = $('#ta_inject_character_select');
+        const $list = $('#ta_inject_character_list').empty();
         const chars = SillyTavern.getContext().characters || [];
 
-        $sel.empty();
-
         if (chars.length === 0) {
-            $sel.append(`<option value="">${t('ui.no_roles')}</option>`);
+            $list.append(`<div class="ta_section_note">${t('ui.no_roles')}</div>`);
             return;
         }
 
         chars.forEach((ch) => {
             const key = ch.avatar || ch.name;
             if (!key) return;
-            const selected = settings.injectCharacters.includes(key) ? 'selected' : '';
-            $sel.append(`<option value="${escHtml(key)}" ${selected}>${escHtml(ch.name || key)}</option>`);
-        });
-
-        $sel.off('change').on('change', function () {
-            const vals = $(this).val();
-            settings.injectCharacters = Array.isArray(vals) ? vals : [];
-            saveSettings();
+            const checked = settings.injectCharacters.includes(key);
+            const $item = $(`
+                <label class="ta_char_item">
+                    <input type="checkbox" class="ta_inject_char_cb" data-key="${escHtml(key)}" ${checked ? 'checked' : ''}>
+                    <span>${escHtml(ch.name || key)}</span>
+                </label>
+            `);
+            $item.find('.ta_inject_char_cb').on('change', function () {
+                const k = $(this).data('key');
+                const on = $(this).prop('checked');
+                if (on && !settings.injectCharacters.includes(k)) {
+                    settings.injectCharacters.push(k);
+                } else if (!on) {
+                    settings.injectCharacters = settings.injectCharacters.filter(x => x !== k);
+                }
+                saveSettings();
+            });
+            $list.append($item);
         });
     }
 
@@ -2812,7 +2991,6 @@
     const { eventSource, event_types } = SillyTavern.getContext();
 
     eventSource.on(event_types.APP_READY, async () => {
-        wrapConsoleForDebug();
         console.log(LOG, 'Initializing…');
 
         await loadChineseDays();
@@ -2861,3 +3039,575 @@
     });
 
 })();
+
+///// lang/en.js /////
+window.TimeAwarenessLangs = window.TimeAwarenessLangs || {};
+window.TimeAwarenessLangs.en = {
+    "ui.title": "Time Awareness",
+    "ui.enable_plugin": "Enable plugin",
+    "ui.holiday_lib_ok": "Holiday lib ✓",
+    "ui.holiday_lib_fail": "Holiday lib ✗ (CDN unreachable)",
+
+    "ui.lang.title": "Language",
+    "ui.lang.auto": "Auto (follow SillyTavern/browser)",
+    "ui.lang.zh": "中文",
+    "ui.lang.en": "English",
+    "status.lang_current": "Current language: {lang}",
+    "status.lang_auto_source": "Auto source: {source}",
+    "status.lang_source_sillytavern": "SillyTavern",
+    "status.lang_source_browser": "Browser",
+    "status.lang_source_default": "Default",
+    "status.lang_source_manual": "Manual",
+
+    "ui.role_scope_inject": "Roles for time/weather injection",
+    "ui.refresh_list": "Refresh list",
+    "ui.no_role_selected": "No role selected = applies to all roles.",
+
+    "ui.time_inject": "Time injection",
+    "ui.inject_timestamp": "Current time",
+    "ui.inject_period": "Time period (dawn/morning/forenoon/noon/afternoon/evening/night/late night)",
+    "ui.inject_daytype": "Day type (workday/weekend/working day off/holiday)",
+    "ui.inject_holiday": "Holiday name + day count",
+    "ui.inject_lunar": "Lunar festivals",
+    "ui.inject_gap": "Time since user's last message",
+    "ui.prompt_pos": "Injection position",
+    "ui.prompt_pos_system": "Extension prompt (system)",
+    "ui.prompt_pos_world": "World info tail",
+    "ui.prompt_pos_prefill": "Prefill (assistant)",
+    "ui.preview": "👁️ Preview current injection",
+
+    "ui.nager.title": "🌍 Overseas holidays (Nager.Date)",
+    "ui.nager.desc": "Use Nager.Date public holidays when country is not CN. Supports timezone auto-detect + manual selection.",
+    "ui.nager.enable": "Enable overseas holidays",
+    "ui.nager.autodetect": "Auto-detect country by timezone on startup",
+    "ui.nager.code_placeholder": "Country code, e.g. US / JP / GB",
+    "ui.apply": "Apply",
+    "ui.refresh_country_list": "Refresh country list",
+
+    "ui.weather.title": "🌤️ Weather & Air Quality (Open-Meteo)",
+    "ui.weather.desc": "Only injects weather data; no location name or coordinates are written. Search location or input coordinates.",
+    "ui.weather.enable": "Enable weather injection",
+    "ui.weather.location_placeholder": "Enter city/district, e.g. Shenzhen Nanshan / shenzhen nanshan",
+    "ui.search": "Search",
+    "ui.weather.lat_placeholder": "Latitude, e.g. 35.07639",
+    "ui.weather.lon_placeholder": "Longitude, e.g. 118.31083",
+    "ui.use_coord": "Use coordinates",
+    "ui.weather.lat_dms_placeholder": "Latitude DMS, e.g. 35°4'35\"",
+    "ui.weather.lon_dms_placeholder": "Longitude DMS, e.g. 118°18'39\"",
+    "ui.convert_dms": "Convert DMS",
+    "ui.weather.current": "Current weather",
+    "ui.weather.air": "Air quality",
+    "ui.weather.forecast": "Forecast",
+    "ui.weather.days": "Forecast days",
+    "ui.weather.interval": "Update interval (min)",
+    "ui.weather.refresh": "🔄 Refresh weather",
+
+    "ui.anniv.title": "🎂 Anniversary",
+    "ui.anniv.desc": "Date format MM-DD; year optional (for year count).",
+    "ui.anniv.add": "➕ Add anniversary",
+    "ann.name_placeholder": "Name (e.g. My birthday)",
+    "ann.date_placeholder": "MM-DD",
+    "ann.year_placeholder": "Year (optional)",
+    "ann.delete": "Delete",
+
+    "ui.auto.title": "Auto messages",
+    "ui.auto.desc": "Keep SillyTavern page open.",
+    "ui.auto.special": "Character sends message on anniversaries",
+    "ui.auto.idle": "Character sends message when user is idle",
+    "ui.auto.idle_threshold": "Idle threshold (hours)",
+    "ui.auto.idle_interval": "Check interval after threshold (minutes)",
+    "ui.auto.idle_probability": "Trigger probability each check (%)",
+    "ui.auto.test_idle": "Test idle message",
+    "ui.auto.prompt_special_label": "Special-day auto message prompt",
+    "ui.auto.prompt_idle_label": "Idle auto message prompt",
+    "ui.auto.prompt_placeholder": "Edit prompt template here",
+    "ui.auto.prompt_reset_special": "Reset special-day default template",
+    "ui.auto.prompt_reset_idle": "Reset idle default template",
+    "ui.auto.prompt_vars_hint": "Variables: {charName}, {desc} (special-day); {charName}, {gapStr}, {timeLine}, {weatherText} (idle)",
+    "ui.role_scope_auto": "Roles for auto messages",
+    "ui.no_roles": "No roles available",
+    "ui.pick": "Select",
+
+    "toast.coord_invalid": "Please enter valid latitude/longitude",
+    "toast.coord_applied": "Weather updated with coordinates",
+    "toast.dms_empty": "Enter DMS to convert",
+    "toast.dms_lat_invalid": "Invalid latitude DMS",
+    "toast.dms_lon_invalid": "Invalid longitude DMS",
+    "toast.dms_converted": "Converted to decimal; click 'Use coordinates' to apply",
+    "toast.search_empty": "Enter city/district to search",
+    "toast.searching": "Searching...",
+    "toast.search_no_result": "No matching location",
+    "toast.search_failed": "Search failed, try again later",
+    "toast.weather_enable_first": "Please enable weather injection first",
+    "toast.weather_need_location": "Please search and choose a location first",
+    "toast.weather_updating": "Updating weather data...",
+    "toast.weather_updated": "Weather data updated",
+    "toast.country_code_invalid": "Please enter a 2-letter country code",
+    "toast.country_list_updating": "Updating country list...",
+    "toast.country_list_updated": "Country list updated",
+    "toast.no_prompt": "(No injection content)",
+    "toast.prompt_title": "Current prompt injection",
+    "toast.open_chat_first": "Please open a chat first",
+    "toast.generating_test": "Generating test message...",
+    "toast.message_saved_failed": "Message sent, but save failed: {error}",
+    "toast.test_sent": "Test message sent",
+    "toast.gen_failed": "Generation failed: {error}",
+    "toast.api_check": "Check API connection",
+    "toast.auto_prompt_reset_special": "Special-day prompt reset to default",
+    "toast.auto_prompt_reset_idle": "Idle prompt reset to default",
+
+    "status.weather_not_set": "Location not set. Search or input coordinates.",
+    "status.weather_located": "Located: {location} ({lat}, {lon})",
+    "status.weather_last_update": "Last update: {time}",
+    "status.weather_failed": "Fetch failed: {error}",
+    "status.weather_air_failed": "Air quality failed: {error}",
+    "status.nager_current_country": "Current country: {country}",
+    "status.nager_timezone": "Timezone: {tz}",
+    "status.nager_holiday_failed": "Holiday fetch failed: {error}",
+    "status.nager_countries_not_loaded": "(Country list not loaded)",
+
+    "weekday.sun": "Sun",
+    "weekday.mon": "Mon",
+    "weekday.tue": "Tue",
+    "weekday.wed": "Wed",
+    "weekday.thu": "Thu",
+    "weekday.fri": "Fri",
+    "weekday.sat": "Sat",
+
+    "period.dawn": "dawn",
+    "period.morning": "morning",
+    "period.forenoon": "forenoon",
+    "period.noon": "noon",
+    "period.afternoon": "afternoon",
+    "period.evening": "evening",
+    "period.night": "night",
+    "period.late": "late night",
+
+    "daytype.workday": "workday",
+    "daytype.weekend": "weekend",
+    "daytype.holiday": "holiday",
+    "daytype.lieu": "working day off",
+
+    "weather.sunny": "Sunny",
+    "weather.partly_cloudy": "Cloudy",
+    "weather.fog": "Fog",
+    "weather.drizzle": "Drizzle",
+    "weather.freezing_drizzle": "Freezing drizzle",
+    "weather.rain": "Rain",
+    "weather.freezing_rain": "Freezing rain",
+    "weather.snow": "Snow",
+    "weather.snow_grains": "Snow grains",
+    "weather.showers": "Showers",
+    "weather.snow_showers": "Snow showers",
+    "weather.thunder": "Thunderstorm",
+    "weather.thunder_hail": "Thunderstorm with hail",
+    "weather.unknown": "Unknown weather",
+    "weather.precip": "Precip",
+
+    "aqi.excellent": "(Excellent)",
+    "aqi.good": "(Good)",
+    "aqi.moderate": "(Moderate)",
+    "aqi.fair": "(Fair)",
+    "aqi.poor": "(Poor)",
+    "aqi.very_poor": "(Very poor)",
+
+    "time.hours": "{n}h",
+    "time.minutes": "{n}m",
+
+    "prompt.header": "[Time Info]",
+    "prompt.current_time": "Current time: {date} {time}",
+    "prompt.time_period": "Time period: {period}",
+    "prompt.day_line": "{weekday}, {type}{holiday}",
+    "prompt.holiday_suffix": " ({name}{day})",
+    "prompt.holiday_day": " Day {day}",
+    "prompt.today_holiday": "Holiday today: {name}{day}",
+    "prompt.lunar": "Lunar festivals: {names}",
+    "prompt.gap": "Time since user's last message: {gap}",
+    "prompt.weather_info": "Weather info:",
+    "prompt.weather_current": "{{user}}'s location weather: {text}",
+    "prompt.weather_air": "Air quality: {text}",
+    "prompt.weather_forecast": "Forecast: {text}",
+    "prompt.char_weather_info": "{{char}}'s location weather ({location}):",
+    "prompt.char_weather_unknown_location": "Unnamed location",
+    "prompt.anniv": "📌 Today is: {text}",
+
+    "prompt.nager_daytype_holiday": " (Public holiday)",
+    "prompt.nager_daytype_unknown": " (Public holiday: unknown)",
+    "prompt.nager_today_unknown": "Public holiday today: data not ready",
+    "prompt.nager_today_none": "Public holiday today: none",
+    "prompt.nager_today_holiday": "Public holiday today: {name}{en}{types}{counties}",
+    "prompt.nager_en_sep": " / {name}",
+    "prompt.nager_types": " (Types: {types})",
+    "prompt.nager_counties": " (Regions: {counties})",
+    "prompt.nager_region": "Holiday region: {name} ({code})",
+
+    "auto.special_prompt": "[System instruction - invisible to user]\nYou are {charName}. Today is a special day for the user: {desc}.\nBased on your relationship and recent atmosphere, decide naturally how to mention it (or hint subtly).\nIf the vibe is not right, you can be more subtle.\nDo not say \"the system told me\" or reveal the source.\nOutput only the message you want to send.",
+    "auto.idle_prompt": "[System instruction - invisible to user]\nYou are {charName}. The user hasn't sent a message for {gapStr}.\n{timeLine}{weatherText}\nBased on the context and your relationship, send a natural proactive message.\nYou may remind the user about rest, meals, hydration, or dressing for weather, but don't lecture.\nDo not mention \"you haven't talked\" or reveal this is system-triggered.\nOutput only the message you want to send.",
+    "auto.test_prompt": "[System instruction - invisible to user]\nYou are {charName}. This is a test. Please proactively send a short message as if you suddenly remembered something.\nOutput only the message you want to send.",
+
+    "error.char_weather_city_not_found": "Character weather location not found: {city}",
+    "error.char_weather_missing_current": "Character weather missing current data",
+    "error.empty_gen": "Generated content is empty"
+};
+
+///// lang/zh.js /////
+window.TimeAwarenessLangs = window.TimeAwarenessLangs || {};
+window.TimeAwarenessLangs.zh = {
+    "ui.title": "时间感知",
+    "ui.enable_plugin": "启用插件",
+    "ui.holiday_lib_ok": "节假日库 ✓",
+    "ui.holiday_lib_fail": "节假日库 ✗（CDN 不可达）",
+
+    "ui.lang.title": "语言设置",
+    "ui.lang.auto": "自动（跟随 SillyTavern/浏览器）",
+    "ui.lang.zh": "中文",
+    "ui.lang.en": "English",
+    "status.lang_current": "当前语言：{lang}",
+    "status.lang_auto_source": "自动来源：{source}",
+    "status.lang_source_sillytavern": "SillyTavern",
+    "status.lang_source_browser": "浏览器",
+    "status.lang_source_default": "默认",
+    "status.lang_source_manual": "手动",
+
+    "ui.role_scope_inject": "时间/天气注入适用角色",
+    "ui.refresh_list": "刷新列表",
+    "ui.no_role_selected": "不勾选任何角色 = 对所有角色生效。",
+
+    "ui.time_inject": "时间信息注入",
+    "ui.inject_timestamp": "当前时间",
+    "ui.inject_period": "时间段（凌晨/早晨/上午/中午/下午/傍晚/夜晚/深夜）",
+    "ui.inject_daytype": "日期类型（工作日/周末/调休/节假日）",
+    "ui.inject_holiday": "法定节假日名称 + 第几天",
+    "ui.inject_lunar": "农历民俗节日",
+    "ui.inject_gap": "距离用户上次发言",
+    "ui.prompt_pos": "注入位置",
+    "ui.prompt_pos_system": "扩展提示（系统）",
+    "ui.prompt_pos_world": "世界书末尾",
+    "ui.prompt_pos_prefill": "预填充（assistant）",
+    "ui.preview": "👁️ 预览当前注入内容",
+
+    "ui.nager.title": "🌍 海外节假日（Nager.Date）",
+    "ui.nager.desc": "国家不是 CN 时使用 Nager.Date 公共假期数据。支持时区自动识别 + 手动选择。",
+    "ui.nager.enable": "启用海外节假日",
+    "ui.nager.autodetect": "启动时按时区自动识别国家",
+    "ui.nager.code_placeholder": "国家代码，如：US / JP / GB",
+    "ui.apply": "应用",
+    "ui.refresh_country_list": "刷新国家列表",
+
+    "ui.weather.title": "🌤️ 天气与空气质量（Open-Meteo）",
+    "ui.weather.desc": "仅注入天气数据，不会写入地区名称或坐标。请先搜索定位，或直接输入经纬度。",
+    "ui.weather.enable": "启用天气注入",
+    "ui.weather.location_placeholder": "输入城市/区县（可拼音），如：深圳南山 / shenzhen nanshan",
+    "ui.search": "搜索",
+    "ui.weather.lat_placeholder": "纬度 Latitude，例如：35.07639",
+    "ui.weather.lon_placeholder": "经度 Longitude，例如：118.31083",
+    "ui.use_coord": "使用坐标",
+    "ui.weather.lat_dms_placeholder": "纬度度分秒，如：35°4'35\"",
+    "ui.weather.lon_dms_placeholder": "经度度分秒，如：118°18'39\"",
+    "ui.convert_dms": "度分秒换算",
+    "ui.weather.current": "当前天气",
+    "ui.weather.air": "空气质量",
+    "ui.weather.forecast": "未来预报",
+    "ui.weather.days": "预报天数",
+    "ui.weather.interval": "更新间隔(分钟)",
+    "ui.weather.refresh": "🔄 手动更新天气",
+
+    "ui.anniv.title": "🎂 纪念日配置",
+    "ui.anniv.desc": "日期格式 MM-DD，年份选填（用于计算第几年）。",
+    "ui.anniv.add": "➕ 添加纪念日",
+    "ann.name_placeholder": "名称（如：我的生日）",
+    "ann.date_placeholder": "MM-DD",
+    "ann.year_placeholder": "年份(选填)",
+    "ann.delete": "删除",
+
+    "ui.auto.title": "自动消息",
+    "ui.auto.desc": "需保持 SillyTavern 页面处于打开状态。",
+    "ui.auto.special": "纪念日当天角色主动发消息",
+    "ui.auto.idle": "用户长时间未发言时角色主动发消息",
+    "ui.auto.idle_threshold": "闲置触发阈值（小时）",
+    "ui.auto.idle_interval": "到达阈值后检查间隔（分钟）",
+    "ui.auto.idle_probability": "每次检查触发概率（%）",
+    "ui.auto.test_special": "手动测试纪念日消息",
+    "ui.auto.test_idle": "手动测试闲置消息",
+    "ui.auto.prompt_special_label": "纪念日自动消息提示词",
+    "ui.auto.prompt_idle_label": "闲置自动消息提示词",
+    "ui.auto.prompt_placeholder": "在这里编辑提示词模板",
+    "ui.auto.prompt_reset_special": "恢复纪念日默认模板",
+    "ui.auto.prompt_reset_idle": "恢复闲置默认模板",
+    "ui.auto.prompt_vars_hint": "可用变量：{charName}、{desc}（纪念日）；{charName}、{gapStr}、{timeLine}、{weatherText}（闲置）",
+    "ui.role_scope_auto": "自动消息适用角色",
+    "ui.no_roles": "暂无可用角色",
+    "ui.pick": "选中",
+
+    "toast.coord_invalid": "请正确输入经纬度数字",
+    "toast.coord_applied": "已使用经纬度更新天气",
+    "toast.dms_empty": "请输入度分秒再换算",
+    "toast.dms_lat_invalid": "纬度度分秒格式不正确",
+    "toast.dms_lon_invalid": "经度度分秒格式不正确",
+    "toast.dms_converted": "已换算为小数，请点击“使用坐标”应用",
+    "toast.search_empty": "请输入城市/区县后再搜索",
+    "toast.searching": "搜索中...",
+    "toast.search_no_result": "未找到匹配地点",
+    "toast.search_failed": "搜索失败，请稍后重试",
+    "toast.weather_enable_first": "请先启用天气注入",
+    "toast.weather_need_location": "请先搜索并选择地区",
+    "toast.weather_updating": "正在更新天气数据…",
+    "toast.weather_updated": "天气数据已更新",
+    "toast.country_code_invalid": "请输入 2 位国家代码",
+    "toast.country_list_updating": "正在更新国家列表…",
+    "toast.country_list_updated": "国家列表已更新",
+    "toast.no_prompt": "（当前无注入内容）",
+    "toast.prompt_title": "当前 Prompt 注入",
+    "toast.open_chat_first": "请先打开一个聊天",
+    "toast.generating_test": "正在生成测试消息…",
+    "toast.message_saved_failed": "消息已发送，但保存失败：{error}",
+    "toast.test_sent": "测试消息已发送",
+    "toast.gen_failed": "生成失败：{error}",
+    "toast.api_check": "请检查 API 连接",
+    "toast.auto_prompt_reset_special": "已恢复纪念日提示词默认模板",
+    "toast.auto_prompt_reset_idle": "已恢复闲置提示词默认模板",
+    "toast.generating_test_special": "正在生成纪念日测试消息…",
+    "toast.test_special_sent": "纪念日测试消息已发送",
+    "toast.test_special_placeholder": "测试纪念日（示例）",
+    "toast.generating_test_idle": "正在生成闲置测试消息…",
+    "toast.test_idle_sent": "闲置测试消息已发送",
+    "toast.test_idle_default_gap": "一段时间",
+
+    "status.weather_not_set": "未设置地区，请搜索定位或直接输入经纬度。",
+    "status.weather_located": "已定位：{location} ({lat}, {lon})",
+    "status.weather_last_update": "上次更新：{time}",
+    "status.weather_failed": "获取失败：{error}",
+    "status.weather_air_failed": "空气质量获取失败：{error}",
+    "status.nager_current_country": "当前国家：{country}",
+    "status.nager_timezone": "时区：{tz}",
+    "status.nager_holiday_failed": "节假日获取失败：{error}",
+    "status.nager_countries_not_loaded": "（国家列表未加载）",
+
+    "weekday.sun": "周日",
+    "weekday.mon": "周一",
+    "weekday.tue": "周二",
+    "weekday.wed": "周三",
+    "weekday.thu": "周四",
+    "weekday.fri": "周五",
+    "weekday.sat": "周六",
+
+    "period.dawn": "凌晨",
+    "period.morning": "早晨",
+    "period.forenoon": "上午",
+    "period.noon": "中午",
+    "period.afternoon": "下午",
+    "period.evening": "傍晚",
+    "period.night": "夜晚",
+    "period.late": "深夜",
+
+    "daytype.workday": "工作日",
+    "daytype.weekend": "周末",
+    "daytype.holiday": "节假日",
+    "daytype.lieu": "调休工作日",
+
+    "weather.sunny": "晴",
+    "weather.partly_cloudy": "多云",
+    "weather.fog": "雾",
+    "weather.drizzle": "毛毛雨",
+    "weather.freezing_drizzle": "冻毛毛雨",
+    "weather.rain": "雨",
+    "weather.freezing_rain": "冻雨",
+    "weather.snow": "雪",
+    "weather.snow_grains": "雪粒",
+    "weather.showers": "阵雨",
+    "weather.snow_showers": "阵雪",
+    "weather.thunder": "雷暴",
+    "weather.thunder_hail": "雷暴伴冰雹",
+    "weather.unknown": "未知天气",
+    "weather.precip": "降水",
+
+    "aqi.excellent": "（优）",
+    "aqi.good": "（良）",
+    "aqi.moderate": "（中等）",
+    "aqi.fair": "（较差）",
+    "aqi.poor": "（很差）",
+    "aqi.very_poor": "（极差）",
+
+    "time.hours": "{n}小时",
+    "time.minutes": "{n}分钟",
+
+    "prompt.header": "[时间信息]",
+    "prompt.current_time": "当前时间：{date} {time}",
+    "prompt.time_period": "时间段：{period}",
+    "prompt.day_line": "{weekday}，{type}{holiday}",
+    "prompt.holiday_suffix": "（{name}{day}）",
+    "prompt.holiday_day": " 第{day}天",
+    "prompt.today_holiday": "今日节日：{name}{day}",
+    "prompt.lunar": "农历节日：{names}",
+    "prompt.gap": "距离用户上次发消息：{gap}",
+    "prompt.weather_info": "天气信息：",
+    "prompt.weather_current": "{{user}}所在地当前天气：{text}",
+    "prompt.weather_air": "空气质量：{text}",
+    "prompt.weather_forecast": "未来预报：{text}",
+    "prompt.char_weather_info": "{{char}}所在地天气（{location}）：",
+    "prompt.char_weather_unknown_location": "未命名地点",
+    "prompt.anniv": "📌 今天是：{text}",
+
+    "prompt.nager_daytype_holiday": "（公共假期）",
+    "prompt.nager_daytype_unknown": "（公共假期：未知）",
+    "prompt.nager_today_unknown": "今日公共假期：数据未就绪",
+    "prompt.nager_today_none": "今日公共假期：无",
+    "prompt.nager_today_holiday": "今日公共假期：{name}{en}{types}{counties}",
+    "prompt.nager_en_sep": " / {name}",
+    "prompt.nager_types": "（类型：{types}）",
+    "prompt.nager_counties": "（地区：{counties}）",
+    "prompt.nager_region": "节假日地区：{name} ({code})",
+
+    "auto.special_prompt": "[系统指令 - 对用户不可见]\n你是{charName}。今天对用户来说是一个特别的日子：{desc}。\n请根据你和用户目前的关系、最近的聊天氛围，自然地决定如何提起（或含蓄暗示）这件事。\n如果当前气氛不适合直说，你可以用更微妙的方式。\n不要说\"系统告诉我\"之类暴露来源的话。\n直接输出你要发给用户的消息内容。",
+    "auto.idle_prompt": "[系统指令 - 对用户不可见]\n你是{charName}。用户已经有{gapStr}没有发消息了。\n{timeLine}{weatherText}\n请根据当前的对话情境和你们的关系，自然地主动发一条消息。\n你可以根据时间/天气提醒用户作息、吃饭、喝水、添衣等，但不要太说教。\n不要提到\"你很久没说话了\"或任何暴露这是系统触发的内容。\n直接输出你要发的消息。",
+    "auto.test_prompt": "[系统指令 - 对用户不可见]\n你是{charName}。这是一条测试，请你随意主动给用户发一条简短的消息，就像你突然想起来什么一样。\n直接输出你要发的内容。",
+
+    "error.char_weather_city_not_found": "未找到角色天气地点：{city}",
+    "error.char_weather_missing_current": "角色天气缺少当前天气数据",
+    "error.empty_gen": "生成内容为空"
+};
+
+///// manifest.json /////
+{
+    "display_name": "Time Awareness / 时间感知",
+    "loading_order": 1,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "咕咕",
+    "version": "1.4.0",
+    "homePage": "https://github.com/Gu-gu-gu-gu-gu/Time-Awareness",
+    "auto_update": false
+}
+
+///// style.css /////
+#ta_settings .ta_anniversary_item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 5px;
+}
+
+#ta_settings .ta_anniversary_item .text_pole {
+    padding: 4px 6px;
+    font-size: 0.9em;
+}
+
+#ta_settings .ta_section_note {
+    font-size: 0.85em;
+    color: var(--grey50, #888);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+#ta_settings .ta_char_item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 3px;
+    cursor: pointer;
+}
+
+#ta_character_list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 4px;
+}
+
+#ta_settings .ta_test_row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#ta_settings .ta-inline-btn {
+    display: inline-flex !important;
+    width: auto !important;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+}
+
+#ta_settings .ta_weather_row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+#ta_settings .ta_weather_row .text_pole {
+    flex: 1;
+    min-width: 120px;
+}
+
+#ta_settings .ta_weather_result_list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+#ta_settings .ta_weather_result_item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#ta_settings .ta_weather_result_text {
+    flex: 1;
+    font-size: 0.9em;
+}
+
+#ta_settings .ta_weather_opts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    margin-top: 6px;
+}
+
+#ta_settings .ta_weather_opts label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#ta_inject_character_list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 4px;
+}
+
+#ta_settings .settings_section {
+    padding: 10px;
+    border: 1px solid var(--grey15, #2f2f2f);
+    border-radius: 8px;
+    background: var(--black10, rgba(0, 0, 0, 0.15));
+}
+
+#ta_settings .ta_weather_row {
+    flex-wrap: wrap;
+}
+
+#ta_settings .ta_weather_row .text_pole {
+    min-width: 140px;
+}
+
+#ta_settings .ta_prompt_editor {
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+    line-height: 1.4;
+    font-size: 0.9em;
+}
+

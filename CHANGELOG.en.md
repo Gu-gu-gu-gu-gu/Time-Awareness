@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v1.5.0 - 2026.05.01
+
+### Added
+- Added **One-click Diagnostics**:
+  - Collects runtime state, cache snapshot, recent logs, and prompt preview
+  - One-click copy to clipboard
+  - Download diagnostics as `.txt`
+
+- Added **Diagnostics Data Masking**:
+  - Masks URL query parameters
+  - Masks character/location text and character whitelist identifiers
+  - Reduces coordinate precision before exporting diagnostics
+
+### Improved
+- Replaced role checkbox lists with multi-select dropdowns for:
+  - Time/Weather injection scope
+  - Auto-message scope
+- Tightened settings panel spacing for a cleaner layout
+
 ## v1.4.0 - 2026.04.15
 
 ### Added

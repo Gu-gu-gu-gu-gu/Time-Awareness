@@ -105,10 +105,11 @@
 }
 
 #ta_settings .settings_section {
-    padding: 10px;
+    padding: 8px;
     border: 1px solid var(--grey15, #2f2f2f);
     border-radius: 8px;
     background: var(--black10, rgba(0, 0, 0, 0.15));
+    margin: 6px 0;
 }
 
 #ta_settings .ta_weather_row {
@@ -125,4 +126,16 @@
     resize: vertical;
     line-height: 1.4;
     font-size: 0.9em;
+}
+
+#ta_settings .sysHR {
+    margin: 6px 0;
+}
+
+#ta_inject_character_select,
+#ta_auto_character_select {
+    width: 100%;
+    height: 34px;
+    min-height: 34px;
+    padding: 4px 8px;
 }
