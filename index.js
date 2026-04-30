@@ -2672,7 +2672,7 @@
                 const diag = collectDiagnostics();
                 const text = diagnosticsToText(diag);
                 await copyTextToClipboard(text);
-                toastr.success('诊断信息已复制，请直接粘贴发送给开发者');
+                toastr.success('诊断信息已复制');
             } catch (e) {
                 toastr.error(`复制失败：${String(e && e.message ? e.message : e || '')}`);
             }
